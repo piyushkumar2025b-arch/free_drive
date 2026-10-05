@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidFileItem(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 255
+        && data.isFolder is bool
+        && data.userId is string && data.userId.size() <= 128
+        && (!('parentId' in data) || data.parentId == null || (data.parentId is string && data.parentId.size() <= 128))
+        && (!('size' in data) || data.size == null || data.size is number)
+        && (!('mimeType' in data) || data.mimeType == null || (data.mimeType is string && data.mimeType.size() <= 128))
+        && (!('extension' in data) || data.extension == null || (data.extension is string && data.extension.size() <= 32))
+        && (!('dataUrl' in data) || data.dataUrl == null || (data.dataUrl is string && data.dataUrl.size() <= 900000))
+        && (!('textContent' in data) || data.textContent == null || (data.textContent is string && data.textContent.size() <= 900000))
+        && (!('isChunked' in data) || data.isChunked == null || data.isChunked is bool)
+        && (!('totalChunks' in data) || data.totalChunks == null || data.totalChunks is number)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFileChunk(data) {
+      return data.fileId is string && data.fileId.size() <= 128
+        && data.chunkIndex is number && data.chunkIndex >= 0
+        && data.data is string && data.data.size() <= 800000
+        && data.userId is string && data.userId.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    // Files and folders
+    match /files/{fileId} {
+      allow get: if isSignedIn() && isValidId(fileId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(fileId) && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && isValidId(fileId)
+        && isValidFileItem(incoming())
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(fileId)
+        && isValidFileItem(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'parentId', 'size', 'mimeType', 'extension', 'dataUrl', 'textContent', 'isChunked', 'totalChunks', 'updatedAt'
+        ]);
+
+      // Sub-collection for large chunked files
+      match /chunks/{chunkId} {
+        allow read, delete: if isSignedIn();
+
+        allow create: if isSignedIn()
+          && isValidId(chunkId)
+          && isValidFileChunk(incoming())
+          && incoming().userId == request.auth.uid
+          && incoming().createdAt == request.time;
+
+        allow update: if false;
+      }
+    }
+  }
+}

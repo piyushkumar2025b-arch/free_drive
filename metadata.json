@@ -1,0 +1,6 @@
+{
+  "name": "CloudFile Manager",
+  "description": "A professional, minimalist file manager with multi-format previews and cloud storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

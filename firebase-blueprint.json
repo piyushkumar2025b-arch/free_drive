@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "FileItem": {
+      "title": "FileItem",
+      "description": "Represents a stored file or folder metadata and optional inline data in the file manager",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "isFolder": {
+          "type": "boolean"
+        },
+        "parentId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "size": {
+          "type": "number"
+        },
+        "mimeType": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "extension": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "dataUrl": {
+          "type": "string",
+          "maxLength": 900000
+        },
+        "textContent": {
+          "type": "string",
+          "maxLength": 900000
+        },
+        "isChunked": {
+          "type": "boolean"
+        },
+        "totalChunks": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "name",
+        "isFolder",
+        "userId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FileChunk": {
+      "title": "FileChunk",
+      "description": "Represents a segment of a large file payload for multi-part assembly",
+      "type": "object",
+      "properties": {
+        "fileId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "chunkIndex": {
+          "type": "number"
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 800000
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "fileId",
+        "chunkIndex",
+        "data",
+        "userId",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/files/{fileId}": {
+      "schema": "FileItem",
+      "description": "Main collection of files and folders stored by users"
+    },
+    "/files/{fileId}/chunks/{chunkId}": {
+      "schema": "FileChunk",
+      "description": "Sub-collection of chunks for large files exceeding single-document limits"
+    }
+  }
+}
