@@ -29,6 +29,7 @@ import {
   saveStoredProviderConfig,
   syncDatabases,
   replicateFileToOtherProvider,
+  extractZipToFolder,
 } from './services/fileService';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -721,6 +722,66 @@ export default function App() {
             markFileAsEdited(fileId);
             setUploadToast('File updated and saved.');
             setTimeout(() => setUploadToast(null), 3000);
+          }}
+          onExtractZip={async (file, dataUrl) => {
+            if (!currentUser) {
+              await signInWithGoogle();
+            }
+            if (!auth.currentUser) return;
+
+            setPreviewFile(null);
+            setIsUploading(true);
+            setUploadProgress({
+              isOpen: true,
+              totalFiles: 1,
+              currentFileIndex: 1,
+              currentFileName: file.name,
+              currentFilePercent: 0,
+              overallPercent: 0,
+              statusText: 'Unzipping archive...',
+              isComplete: false,
+              error: null,
+            });
+
+            try {
+              const count = await extractZipToFolder(
+                dataUrl,
+                file.name,
+                auth.currentUser.uid,
+                currentFolderId,
+                providerConfig,
+                (percent, msg) => {
+                  setUploadProgress((prev) => ({
+                    ...prev,
+                    currentFilePercent: percent,
+                    overallPercent: percent,
+                    statusText: msg,
+                  }));
+                }
+              );
+
+              setUploadProgress((prev) => ({
+                ...prev,
+                isComplete: true,
+                overallPercent: 100,
+                statusText: `Extracted ${count} file(s) into folder!`,
+              }));
+              setUploadToast(`Unzipped ${count} file(s) into your drive.`);
+              setTimeout(() => {
+                setUploadProgress((prev) => ({ ...prev, isOpen: false }));
+                setUploadToast(null);
+              }, 4000);
+            } catch (err: any) {
+              console.error('Unzip error:', err);
+              setErrorMsg('Unzip failed: ' + (err.message || ''));
+              setUploadProgress((prev) => ({
+                ...prev,
+                error: err.message || 'Unzip failed',
+                statusText: 'Failed to extract archive',
+              }));
+            } finally {
+              setIsUploading(false);
+            }
           }}
         />
       )}

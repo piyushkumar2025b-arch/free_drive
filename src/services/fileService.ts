@@ -24,6 +24,7 @@ import {
   getLocalSupabaseFiles,
 } from '../lib/supabase';
 import { FileItem, ProviderConfig } from '../types';
+import JSZip from 'jszip';
 
 const CHUNK_SIZE = 500 * 1024; // 500KB chunk size for base64
 export const FIREBASE_MAX_STORAGE_BYTES = 1024 * 1024 * 1024; // 1 GiB (1,073,741,824 bytes)
@@ -743,3 +744,89 @@ export async function loadFullFileDataUrl(file: FileItem): Promise<string | null
 
   return null;
 }
+
+export async function extractZipToFolder(
+  zipDataUrl: string,
+  zipFileName: string,
+  userId: string,
+  currentFolderId: string | null,
+  providerConfig: ProviderConfig,
+  onProgress?: (percent: number, msg: string) => void
+): Promise<number> {
+  const base64Index = zipDataUrl.indexOf('base64,');
+  const base64 = base64Index !== -1 ? zipDataUrl.substring(base64Index + 7) : zipDataUrl;
+  const binaryString = atob(base64.trim());
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  onProgress?.(10, 'Reading archive contents...');
+  const zip = await JSZip.loadAsync(bytes.buffer);
+
+  const cleanZipName = zipFileName.replace(/\.zip$/i, '') + '_extracted';
+  onProgress?.(25, `Creating destination folder "${cleanZipName}"...`);
+  const destFolderId = await createFolder(cleanZipName, userId, currentFolderId, providerConfig);
+
+  const entries: { path: string; isDir: boolean; file: JSZip.JSZipObject }[] = [];
+  zip.forEach((path, file) => {
+    if (path.startsWith('__MACOSX') || path.endsWith('.DS_Store')) return;
+    entries.push({ path, isDir: file.dir, file });
+  });
+
+  let extractedCount = 0;
+  const folderMap = new Map<string, string>();
+  folderMap.set('', destFolderId);
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const percent = Math.round(30 + ((i + 1) / Math.max(1, entries.length)) * 65);
+    const parts = entry.path.split('/').filter(Boolean);
+    const fileName = parts[parts.length - 1];
+
+    if (!fileName) continue;
+
+    if (entry.isDir) {
+      onProgress?.(percent, `Creating subfolder ${entry.path}...`);
+      const parentPath = parts.slice(0, -1).join('/');
+      const parentId = folderMap.get(parentPath) || destFolderId;
+      try {
+        const subFolderId = await createFolder(fileName, userId, parentId, providerConfig);
+        folderMap.set(entry.path.replace(/\/$/, ''), subFolderId);
+      } catch (e) {
+        console.warn('Failed creating subfolder', e);
+      }
+    } else {
+      onProgress?.(percent, `Extracting ${fileName}...`);
+      const parentPath = parts.slice(0, -1).join('/');
+      const parentId = folderMap.get(parentPath) || destFolderId;
+
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+      const isText = isTextFile('', ext);
+
+      try {
+        if (isText) {
+          const textContent = await entry.file.async('string');
+          await createTextFile(fileName, textContent, userId, parentId, providerConfig);
+        } else {
+          const b64 = await entry.file.async('base64');
+          const mimeType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream';
+          const fileObj = new File(
+            [Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))],
+            fileName,
+            { type: mimeType }
+          );
+          await uploadFile(fileObj, userId, parentId, providerConfig);
+        }
+        extractedCount++;
+      } catch (e) {
+        console.warn(`Failed extracting file ${fileName}`, e);
+      }
+    }
+  }
+
+  onProgress?.(100, `Extracted ${extractedCount} file(s) successfully!`);
+  return extractedCount;
+}
+

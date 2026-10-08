@@ -18,12 +18,32 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  FileSpreadsheet,
   Volume2,
   Loader2,
+  Presentation,
+  FolderArchive,
+  Folder,
+  ExternalLink,
+  FolderOpen,
 } from 'lucide-react';
 import { FileItem } from '../types';
-import { formatFileSize, isTextFile, loadFullFileDataUrl, updateFileContent } from '../services/fileService';
+import {
+  formatFileSize,
+  isTextFile,
+  loadFullFileDataUrl,
+  updateFileContent,
+} from '../services/fileService';
+import {
+  parseDocxToHtml,
+  parsePptxSlides,
+  PptxSlide,
+  inspectZipArchive,
+  ZipEntryItem,
+} from '../services/documentParserService';
+import {
+  highlightCode,
+  getLanguageFromExtension,
+} from '../services/syntaxHighlightService';
 import { FileIcon } from './FileIcon';
 
 interface FilePreviewModalProps {
@@ -34,6 +54,7 @@ interface FilePreviewModalProps {
   onDelete: (file: FileItem) => void;
   onRename: (file: FileItem) => void;
   onFileUpdated?: (fileId: string, newContent: string) => void;
+  onExtractZip?: (file: FileItem, dataUrl: string) => Promise<void>;
 }
 
 export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
@@ -44,6 +65,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   onDelete,
   onRename,
   onFileUpdated,
+  onExtractZip,
 }) => {
   if (!file) return null;
 
@@ -66,12 +88,74 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   // Markdown toggle
   const [markdownViewMode, setMarkdownViewMode] = useState<'preview' | 'raw'>('preview');
 
+  // DOCX State
+  const [docxHtml, setDocxHtml] = useState<string | null>(null);
+  const [isLoadingDocx, setIsLoadingDocx] = useState<boolean>(false);
+
+  // PPTX State
+  const [slides, setSlides] = useState<PptxSlide[]>([]);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
+  const [isLoadingPptx, setIsLoadingPptx] = useState<boolean>(false);
+
+  // ZIP State
+  const [zipEntries, setZipEntries] = useState<ZipEntryItem[]>([]);
+  const [isLoadingZip, setIsLoadingZip] = useState<boolean>(false);
+  const [isExtractingZip, setIsExtractingZip] = useState<boolean>(false);
+
+  const ext = file.extension.toLowerCase();
+  const mime = file.mimeType.toLowerCase();
+
+  const isImage =
+    mime.startsWith('image/') ||
+    ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
+
+  const isVideo =
+    mime.startsWith('video/') ||
+    ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(ext);
+
+  const isAudio =
+    mime.startsWith('audio/') ||
+    ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext);
+
+  const isPdf = ext === 'pdf' || mime.includes('pdf');
+
+  const isCsv = ['csv', 'tsv'].includes(ext) || mime.includes('csv');
+
+  const isMarkdown = ['md', 'markdown'].includes(ext);
+
+  const isDocx =
+    ['docx', 'doc'].includes(ext) ||
+    mime.includes('wordprocessingml') ||
+    mime.includes('msword');
+
+  const isPptx =
+    ['pptx', 'ppt'].includes(ext) ||
+    mime.includes('presentationml') ||
+    mime.includes('powerpoint');
+
+  const isArchive =
+    ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'jar', 'war'].includes(ext) ||
+    mime.includes('zip') ||
+    mime.includes('compressed') ||
+    mime.includes('archive');
+
+  const isCodeOrText =
+    isTextFile(file.mimeType, file.extension) ||
+    file.textContent !== undefined ||
+    isMarkdown ||
+    isCsv ||
+    ['ts', 'tsx', 'js', 'jsx', 'py', 'json', 'html', 'css', 'sql', 'sh', 'yaml', 'yml', 'xml', 'rs', 'go', 'cpp', 'c', 'php'].includes(ext);
+
   // Load chunked / remote data if not loaded
   useEffect(() => {
     setTextContent(file.textContent || '');
     setIsEditingText(false);
     setZoom(1);
     setRotation(0);
+    setDocxHtml(null);
+    setSlides([]);
+    setCurrentSlideIndex(0);
+    setZipEntries([]);
 
     if (file.dataUrl) {
       setActiveDataUrl(file.dataUrl);
@@ -130,6 +214,47 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       });
   }, [file]);
 
+  // Handle format-specific parsers once activeDataUrl is available
+  useEffect(() => {
+    if (!activeDataUrl) return;
+
+    if (isDocx) {
+      setIsLoadingDocx(true);
+      parseDocxToHtml(activeDataUrl)
+        .then((html) => setDocxHtml(html))
+        .catch((e) => {
+          console.warn('DOCX parser failed', e);
+          setDocxHtml('<p class="text-zinc-500 italic">Could not extract Word document preview. Please download the original file to view it.</p>');
+        })
+        .finally(() => setIsLoadingDocx(false));
+    }
+
+    if (isPptx) {
+      setIsLoadingPptx(true);
+      parsePptxSlides(activeDataUrl)
+        .then((parsed) => {
+          setSlides(parsed);
+          setCurrentSlideIndex(0);
+        })
+        .catch((e) => {
+          console.warn('PPTX parser failed', e);
+        })
+        .finally(() => setIsLoadingPptx(false));
+    }
+
+    if (isArchive) {
+      setIsLoadingZip(true);
+      inspectZipArchive(activeDataUrl)
+        .then((entries) => {
+          setZipEntries(entries);
+        })
+        .catch((e) => {
+          console.warn('Archive inspect failed', e);
+        })
+        .finally(() => setIsLoadingZip(false));
+    }
+  }, [activeDataUrl, isDocx, isPptx, isArchive]);
+
   // Keyboard navigation across sibling files
   const currentIndex = siblingFiles.findIndex((f) => f.id === file.id);
   const hasPrev = currentIndex > 0;
@@ -152,33 +277,6 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, hasPrev, hasNext, currentIndex, siblingFiles, onNavigateFile, isEditingText]);
-
-  const ext = file.extension.toLowerCase();
-  const mime = file.mimeType.toLowerCase();
-
-  const isImage =
-    mime.startsWith('image/') ||
-    ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
-
-  const isVideo =
-    mime.startsWith('video/') ||
-    ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(ext);
-
-  const isAudio =
-    mime.startsWith('audio/') ||
-    ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext);
-
-  const isPdf = ext === 'pdf' || mime.includes('pdf');
-
-  const isCsv = ['csv', 'tsv'].includes(ext) || mime.includes('csv');
-
-  const isMarkdown = ['md', 'markdown'].includes(ext);
-
-  const isCodeOrText =
-    isTextFile(file.mimeType, file.extension) ||
-    file.textContent !== undefined ||
-    isMarkdown ||
-    isCsv;
 
   // Handle Download
   const handleDownload = () => {
@@ -222,7 +320,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   };
 
-  // CSV parser for tabular preview
+  // Safe CSV parser
   const csvData = useMemo(() => {
     if (!isCsv || !textContent) return null;
     const delimiter = ext === 'tsv' ? '\t' : ',';
@@ -263,38 +361,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     };
   }, [isCsv, textContent, ext]);
 
-  // Hex preview for binary / unknown files
-  const hexPreview = useMemo(() => {
-    if (isImage || isVideo || isAudio || isPdf || isCodeOrText || !activeDataUrl) return null;
-    try {
-      const base64Index = activeDataUrl.indexOf('base64,');
-      if (base64Index === -1) return null;
-      const b64 = activeDataUrl.substring(base64Index + 7);
-      const binaryString = atob(b64.substring(0, 512));
-      const lines: { offset: string; hex: string; ascii: string }[] = [];
-
-      for (let i = 0; i < Math.min(binaryString.length, 256); i += 16) {
-        const slice = binaryString.slice(i, i + 16);
-        const hex = Array.from(slice)
-          .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
-          .join(' ');
-        const ascii = Array.from(slice)
-          .map((c) => {
-            const code = c.charCodeAt(0);
-            return code >= 32 && code <= 126 ? c : '.';
-          })
-          .join('');
-        lines.push({
-          offset: i.toString(16).padStart(8, '0'),
-          hex: hex.padEnd(48, ' '),
-          ascii,
-        });
-      }
-      return lines;
-    } catch {
-      return null;
-    }
-  }, [activeDataUrl, isImage, isVideo, isAudio, isPdf, isCodeOrText]);
+  // Syntax highlighted HTML for code files
+  const highlightedCodeHtml = useMemo(() => {
+    if (!isCodeOrText || isEditingText || !textContent) return '';
+    const lang = getLanguageFromExtension(ext);
+    return highlightCode(textContent, lang);
+  }, [isCodeOrText, isEditingText, textContent, ext]);
 
   return (
     <div
@@ -330,7 +402,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <span>·</span>
                 <span className="uppercase font-mono">{file.extension || 'file'}</span>
                 <span>·</span>
-                <span>{file.mimeType}</span>
+                <span className="truncate max-w-[200px]">{file.mimeType}</span>
               </div>
             </div>
           </div>
@@ -550,6 +622,247 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 </button>
               </div>
             </div>
+          ) : isPdf && activeDataUrl ? (
+            /* PDF PREVIEW WITH TOOLBAR */
+            <div className="w-full h-full flex flex-col bg-zinc-900 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-2.5 bg-zinc-800 text-xs text-zinc-300 border-b border-zinc-700">
+                <div className="flex items-center gap-2">
+                  <FileText size={15} className="text-red-400" />
+                  <span className="font-medium text-white">{file.name}</span>
+                  <span>·</span>
+                  <span className="text-zinc-400">{formatFileSize(file.size)}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={activeDataUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition"
+                  >
+                    <ExternalLink size={13} />
+                    <span>Open in New Tab</span>
+                  </a>
+                </div>
+              </div>
+              <div className="flex-1 w-full h-full p-2 bg-zinc-950">
+                <iframe
+                  src={activeDataUrl}
+                  title={file.name}
+                  className="w-full h-full rounded-lg border-0 bg-white"
+                />
+              </div>
+            </div>
+          ) : isDocx ? (
+            /* MICROSOFT WORD DOCX PREVIEW */
+            <div className="w-full h-full flex flex-col bg-zinc-100 dark:bg-zinc-950 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-xs">
+                <div className="flex items-center gap-2">
+                  <FileText size={16} className="text-blue-600" />
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">{file.name}</span>
+                  <span className="text-zinc-400">· Microsoft Word Document</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs transition"
+                >
+                  <Download size={13} />
+                  <span>Download Original</span>
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto p-6 sm:p-10 flex justify-center">
+                <div className="w-full max-w-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 sm:p-14 docx-rendered-sheet min-h-full">
+                  {isLoadingDocx ? (
+                    <div className="flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
+                      <Loader2 className="animate-spin text-blue-500 w-8 h-8" />
+                      <p>Rendering Word document...</p>
+                    </div>
+                  ) : docxHtml ? (
+                    <div dangerouslySetInnerHTML={{ __html: docxHtml }} />
+                  ) : (
+                    <p className="text-zinc-400">Document content unavailable.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : isPptx ? (
+            /* POWERPOINT PPTX SLIDE DECK PREVIEW */
+            <div className="w-full h-full flex flex-col bg-zinc-900 text-zinc-100 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-3 bg-zinc-800 border-b border-zinc-700 text-xs">
+                <div className="flex items-center gap-3">
+                  <Presentation size={16} className="text-amber-400" />
+                  <span className="font-semibold text-white">{file.name}</span>
+                  <span className="text-zinc-400">({slides.length} slides)</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={currentSlideIndex === 0}
+                    onClick={() => setCurrentSlideIndex((i) => Math.max(0, i - 1))}
+                    className="p-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 transition text-white"
+                    title="Previous slide"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="px-3 font-mono text-xs tabular-nums text-zinc-300">
+                    Slide {slides.length > 0 ? currentSlideIndex + 1 : 0} of {slides.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentSlideIndex >= slides.length - 1}
+                    onClick={() => setCurrentSlideIndex((i) => Math.min(slides.length - 1, i + 1))}
+                    className="p-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 transition text-white"
+                    title="Next slide"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Slide Display Canvas (16:9) */}
+              <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-zinc-950">
+                {isLoadingPptx ? (
+                  <div className="flex flex-col items-center gap-3 text-zinc-400">
+                    <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                    <p>Extracting presentation slides...</p>
+                  </div>
+                ) : slides.length > 0 ? (
+                  <div className="w-full max-w-4xl aspect-video bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-700/80 rounded-2xl shadow-2xl p-10 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-semibold">
+                        Slide {currentSlideIndex + 1}
+                      </span>
+                      <h2 className="text-2xl font-bold text-white mt-2 leading-tight">
+                        {slides[currentSlideIndex].title}
+                      </h2>
+                      <div className="mt-6 space-y-3">
+                        {slides[currentSlideIndex].content.map((point, idx) => (
+                          <div key={idx} className="flex items-start gap-3 text-sm text-zinc-300 leading-relaxed">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 mt-2 shrink-0" />
+                            <span>{point}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-zinc-500 pt-4 border-t border-zinc-800">
+                      <span>{file.name}</span>
+                      <span>Presentation Deck</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-zinc-400">
+                    <Presentation size={36} className="mx-auto text-amber-500 mb-2 opacity-60" />
+                    <p>No slides found in presentation.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Slide Thumbnails Tray */}
+              {slides.length > 1 && (
+                <div className="h-24 bg-zinc-900 border-t border-zinc-800 p-3 flex items-center gap-3 overflow-x-auto select-none">
+                  {slides.map((s, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCurrentSlideIndex(idx)}
+                      className={`h-full aspect-video rounded-lg border p-2 text-left flex flex-col justify-between shrink-0 transition ${
+                        currentSlideIndex === idx
+                          ? 'border-amber-500 bg-amber-500/10 ring-2 ring-amber-500/30'
+                          : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700 text-zinc-400'
+                      }`}
+                    >
+                      <span className="text-[10px] font-mono text-zinc-400 font-bold">#{s.slideNumber}</span>
+                      <span className="text-[11px] font-semibold text-zinc-200 truncate">{s.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : isArchive ? (
+            /* ZIP ARCHIVE INSPECTOR & UNZIPPER */
+            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-950 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-3.5 bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-xs">
+                <div className="flex items-center gap-3">
+                  <FolderArchive size={17} className="text-amber-500" />
+                  <div>
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">{file.name}</span>
+                    <span className="text-zinc-400 ml-2">({zipEntries.length} items inside archive)</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onExtractZip && (
+                    <button
+                      type="button"
+                      disabled={isExtractingZip}
+                      onClick={async () => {
+                        if (!activeDataUrl) return;
+                        setIsExtractingZip(true);
+                        try {
+                          await onExtractZip(file, activeDataUrl);
+                        } finally {
+                          setIsExtractingZip(false);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl text-xs transition shadow-xs disabled:opacity-50"
+                    >
+                      {isExtractingZip ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <FolderOpen size={14} />
+                      )}
+                      <span>{isExtractingZip ? 'Extracting...' : 'Extract / Unzip to Drive'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Archive File List */}
+              <div className="flex-1 overflow-auto">
+                {isLoadingZip ? (
+                  <div className="flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
+                    <Loader2 className="animate-spin text-amber-500 w-8 h-8" />
+                    <p>Reading archive contents...</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-zinc-100 dark:bg-zinc-900/90 text-zinc-600 dark:text-zinc-400 sticky top-0 border-b border-zinc-200 dark:border-zinc-800 font-medium">
+                      <tr>
+                        <th className="py-2.5 px-6">Name</th>
+                        <th className="py-2.5 px-4">Path</th>
+                        <th className="py-2.5 px-4">Size</th>
+                        <th className="py-2.5 px-4">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
+                      {zipEntries.map((entry, idx) => (
+                        <tr
+                          key={idx}
+                          className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition-colors"
+                        >
+                          <td className="py-2.5 px-6 font-sans">
+                            <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 font-medium">
+                              {entry.isFolder ? (
+                                <Folder size={15} className="text-amber-500 shrink-0" />
+                              ) : (
+                                <FileText size={15} className="text-blue-500 shrink-0" />
+                              )}
+                              <span className="truncate">{entry.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-4 text-zinc-500 truncate max-w-xs">{entry.relativePath}</td>
+                          <td className="py-2.5 px-4 text-zinc-500 tabular-nums">
+                            {entry.isFolder ? '-' : formatFileSize(entry.size)}
+                          </td>
+                          <td className="py-2.5 px-4 text-zinc-500">{entry.date.toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
           ) : isVideo && activeDataUrl ? (
             /* VIDEO PREVIEW */
             <div className="w-full h-full flex flex-col items-center justify-center p-6">
@@ -576,15 +889,6 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 </p>
               </div>
               <audio src={activeDataUrl} controls className="w-full" />
-            </div>
-          ) : isPdf && activeDataUrl ? (
-            /* PDF PREVIEW */
-            <div className="w-full h-full flex flex-col p-4">
-              <iframe
-                src={activeDataUrl}
-                title={file.name}
-                className="w-full flex-1 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white"
-              />
             </div>
           ) : isCsv && csvData && !isEditingText ? (
             /* CSV / SPREADSHEET TABULAR PREVIEW */
@@ -702,7 +1006,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </div>
             </div>
           ) : isCodeOrText ? (
-            /* CODE / TEXT FILE PREVIEW & EDITOR */
+            /* CODE / TEXT FILE PREVIEW WITH PRISM SYNTAX HIGHLIGHTING */
             <div className="w-full h-full flex flex-col bg-zinc-950 text-zinc-200">
               <div className="flex items-center justify-between px-6 py-3 bg-zinc-900 border-b border-zinc-800 text-xs text-zinc-400 select-none">
                 <div className="flex items-center gap-3">
@@ -761,37 +1065,15 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                     className={`flex-1 p-4 text-zinc-100 overflow-auto font-mono text-xs leading-6 ${
                       wrapLines ? 'whitespace-pre-wrap' : 'whitespace-pre'
                     }`}
-                  >
-                    {textContent || '(Empty file)'}
-                  </pre>
+                    dangerouslySetInnerHTML={{
+                      __html: highlightedCodeHtml || textContent || '(Empty file)',
+                    }}
+                  />
                 )}
               </div>
             </div>
-          ) : hexPreview ? (
-            /* BINARY / UNKNOWN FILE HEX VIEWER */
-            <div className="w-full h-full flex flex-col bg-zinc-950 font-mono text-xs text-zinc-300">
-              <div className="flex items-center justify-between px-6 py-3 bg-zinc-900 border-b border-zinc-800 text-zinc-400">
-                <span className="font-semibold text-zinc-200">Binary / Hex Inspector (First 256 bytes)</span>
-                <span className="tabular-nums">{formatFileSize(file.size)}</span>
-              </div>
-              <div className="flex-1 overflow-auto p-6 select-text">
-                <table className="border-collapse">
-                  <tbody>
-                    {hexPreview.map((line, idx) => (
-                      <tr key={idx} className="hover:bg-zinc-900/60">
-                        <td className="text-zinc-600 pr-6 select-none">{line.offset}</td>
-                        <td className="text-indigo-400 pr-8 tracking-wider">{line.hex}</td>
-                        <td className="text-emerald-400 tracking-wide border-l border-zinc-800 pl-6">
-                          {line.ascii}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           ) : (
-            /* GENERIC UNKNOWN FILE INFO CARD */
+            /* GENERIC FILE INFO CARD */
             <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center gap-5">
               <div className="w-24 h-24 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500">
                 <FileIcon
@@ -807,7 +1089,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   {file.name}
                 </h3>
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                  Binary or Archive format · {formatFileSize(file.size)}
+                  Format · {formatFileSize(file.size)}
                 </p>
               </div>
 
@@ -819,19 +1101,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Extension:</span>
                   <span className="font-mono uppercase text-zinc-800 dark:text-zinc-200">
-                    {file.extension || 'None'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Size:</span>
-                  <span className="text-zinc-800 dark:text-zinc-200 tabular-nums">
-                    {formatFileSize(file.size)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-400">Storage Mode:</span>
-                  <span className="text-zinc-800 dark:text-zinc-200">
-                    {file.isChunked ? `Multi-part (${file.totalChunks} chunks)` : 'Single Document'}
+                    {file.extension || 'none'}
                   </span>
                 </div>
               </div>
@@ -839,9 +1109,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               <button
                 type="button"
                 onClick={handleDownload}
-                className="w-full mt-2 flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition shadow-xs"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition"
               >
-                <Download size={15} /> Download File
+                <Download size={14} />
+                <span>Download File</span>
               </button>
             </div>
           )}
