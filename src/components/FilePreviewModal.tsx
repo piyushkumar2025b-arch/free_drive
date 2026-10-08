@@ -277,20 +277,77 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isEditingText) return;
+
+      // Inner zip entry preview
+      if (previewArchiveEntry) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setPreviewArchiveEntry(null);
+          return;
+        }
+      }
+
+      // Escape key exits fullscreen first, or closes modal
       if (e.key === 'Escape') {
-        onClose();
-      } else if (e.key === 'ArrowLeft' && hasPrev && onNavigateFile) {
-        onNavigateFile(siblingFiles[currentIndex - 1]);
-      } else if (e.key === 'ArrowRight' && hasNext && onNavigateFile) {
-        onNavigateFile(siblingFiles[currentIndex + 1]);
-      } else if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        if (isModalFullscreen) {
+          setIsModalFullscreen(false);
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      // Slideshow navigation for PPT
+      if (isPptx && slides.length > 0) {
+        if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+          e.preventDefault();
+          setCurrentSlideIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+          e.preventDefault();
+          setCurrentSlideIndex((i) => Math.min(slides.length - 1, i + 1));
+          return;
+        }
+      }
+
+      // For PDF, let PdfViewer handle internal page flips
+      if (isPdf) {
+        return;
+      }
+
+      // Sibling files navigation in windowed mode
+      if (!isModalFullscreen) {
+        if (e.key === 'ArrowLeft' && hasPrev && onNavigateFile) {
+          onNavigateFile(siblingFiles[currentIndex - 1]);
+        } else if (e.key === 'ArrowRight' && hasNext && onNavigateFile) {
+          onNavigateFile(siblingFiles[currentIndex + 1]);
+        }
+      }
+
+      // Toggle fullscreen with Ctrl/Cmd + F
+      if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setIsModalFullscreen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, hasPrev, hasNext, currentIndex, siblingFiles, onNavigateFile, isEditingText]);
+  }, [
+    onClose,
+    hasPrev,
+    hasNext,
+    currentIndex,
+    siblingFiles,
+    onNavigateFile,
+    isEditingText,
+    isModalFullscreen,
+    isPptx,
+    isPdf,
+    slides.length,
+    previewArchiveEntry,
+  ]);
 
   // Handle Download
   const handleDownload = () => {
@@ -418,139 +475,145 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             : 'max-w-6xl h-[90vh] rounded-2xl'
         }`}
       >
-        {/* Modal Top Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 select-none">
-          <div className="flex items-center gap-4 min-w-0">
-            <FileIcon
-              isFolder={file.isFolder}
-              mimeType={file.mimeType}
-              extension={file.extension}
-              size={24}
-            />
-            <div className="min-w-0">
-              <h2 id="preview-modal-title" className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
-                {file.name}
-              </h2>
-              <div className="flex items-center gap-2 text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                <span>{formatFileSize(file.size)}</span>
-                <span>·</span>
-                <span className="uppercase font-mono">{file.extension || 'file'}</span>
-                <span>·</span>
-                <span className="truncate max-w-[200px]">{file.mimeType}</span>
+        {/* Modal Top Bar (Hidden in Fullscreen for 100% distraction-free pure document viewing) */}
+        {!isModalFullscreen && (
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 select-none">
+            <div className="flex items-center gap-4 min-w-0">
+              <FileIcon
+                isFolder={file.isFolder}
+                mimeType={file.mimeType}
+                extension={file.extension}
+                size={24}
+              />
+              <div className="min-w-0">
+                <h2 id="preview-modal-title" className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                  {file.name}
+                </h2>
+                <div className="flex items-center gap-2 text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                  <span>{formatFileSize(file.size)}</span>
+                  <span>·</span>
+                  <span className="uppercase font-mono">{file.extension || 'file'}</span>
+                  <span>·</span>
+                  <span className="truncate max-w-[200px]">{file.mimeType}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Action Tools */}
-          <div className="flex items-center gap-2">
-            {isEditingText && textContent !== (file.textContent || '') && (
-              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 rounded-lg flex items-center gap-1.5 border border-amber-200 dark:border-amber-900/60 animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                <span>Unsaved edits</span>
-              </span>
-            )}
+            {/* Action Tools */}
+            <div className="flex items-center gap-2">
+              {isEditingText && textContent !== (file.textContent || '') && (
+                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 rounded-lg flex items-center gap-1.5 border border-amber-200 dark:border-amber-900/60 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  <span>Unsaved edits</span>
+                </span>
+              )}
 
-            {saveSuccess && (
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg flex items-center gap-1 border border-emerald-200 dark:border-emerald-900/60">
-                <Check size={13} />
-                <span>Saved &amp; Updated</span>
-              </span>
-            )}
+              {saveSuccess && (
+                <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg flex items-center gap-1 border border-emerald-200 dark:border-emerald-900/60">
+                  <Check size={13} />
+                  <span>Saved &amp; Updated</span>
+                </span>
+              )}
 
-            {isCodeOrText && !isEditingText && (
+              {isCodeOrText && !isEditingText && (
+                <button
+                  type="button"
+                  onClick={handleCopyText}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                  title="Copy contents"
+                >
+                  {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                  <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+              )}
+
+              {isCodeOrText && !isEditingText && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingText(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                  title="Edit text"
+                >
+                  <Edit2 size={14} />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+              )}
+
+              {isEditingText && (
+                <button
+                  type="button"
+                  disabled={isSavingText}
+                  onClick={handleSaveTextChanges}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50 shadow-xs"
+                >
+                  {isSavingText ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>Save Changes</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={handleCopyText}
+                onClick={handleDownload}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-                title="Copy contents"
+                title="Download file"
               >
-                {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+                <Download size={14} />
+                <span className="hidden sm:inline">Download</span>
               </button>
-            )}
 
-            {isCodeOrText && !isEditingText && (
+              {/* Modal Fullscreen Toggle */}
               <button
                 type="button"
-                onClick={() => setIsEditingText(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-                title="Edit text"
+                onClick={() => setIsModalFullscreen(!isModalFullscreen)}
+                className="p-1.5 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                title={isModalFullscreen ? 'Exit Full Screen' : 'Full Screen Pure View'}
               >
-                <Edit2 size={14} />
-                <span className="hidden sm:inline">Edit</span>
+                {isModalFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               </button>
-            )}
 
-            {isEditingText && (
               <button
                 type="button"
-                disabled={isSavingText}
-                onClick={handleSaveTextChanges}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50 shadow-xs"
+                onClick={() => onRename(file)}
+                className="p-1.5 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                title="Rename"
               >
-                {isSavingText ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                <span>Save Changes</span>
+                <Edit2 size={16} />
               </button>
-            )}
 
-            <button
-              type="button"
-              onClick={handleDownload}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-              title="Download file"
-            >
-              <Download size={14} />
-              <span className="hidden sm:inline">Download</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDelete(file);
+                  onClose();
+                }}
+                className="p-1.5 text-zinc-500 hover:text-rose-600 dark:text-zinc-400 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                title="Delete"
+              >
+                <Trash2 size={16} />
+              </button>
 
-            {/* Modal Fullscreen Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsModalFullscreen(!isModalFullscreen)}
-              className="p-1.5 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-              title={isModalFullscreen ? 'Exit Full Screen' : 'Full Screen'}
-            >
-              {isModalFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
+              <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
 
-            <button
-              type="button"
-              onClick={() => onRename(file)}
-              className="p-1.5 text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-              title="Rename"
-            >
-              <Edit2 size={16} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onDelete(file);
-                onClose();
-              }}
-              className="p-1.5 text-zinc-500 hover:text-rose-600 dark:text-zinc-400 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-              title="Delete"
-            >
-              <Trash2 size={16} />
-            </button>
-
-            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
-              title="Close (Esc)"
-            >
-              <X size={18} />
-            </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                title="Close (Esc)"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Modal Content Area */}
-        <div className="flex-1 overflow-auto bg-zinc-100 dark:bg-zinc-950 flex flex-col items-center justify-center relative">
-          {/* Sibling File Navigation Arrows */}
-          {hasPrev && onNavigateFile && (
+        <div
+          className={`flex-1 overflow-auto flex flex-col items-center justify-center relative ${
+            isModalFullscreen ? 'bg-zinc-950 p-0 w-full h-full' : 'bg-zinc-100 dark:bg-zinc-950'
+          }`}
+        >
+          {/* Sibling File Navigation Arrows (Windowed mode only so full screen remains completely clean) */}
+          {!isModalFullscreen && hasPrev && onNavigateFile && (
             <button
               type="button"
               onClick={() => onNavigateFile(siblingFiles[currentIndex - 1])}
@@ -561,7 +624,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </button>
           )}
 
-          {hasNext && onNavigateFile && (
+          {!isModalFullscreen && hasNext && onNavigateFile && (
             <button
               type="button"
               onClick={() => onNavigateFile(siblingFiles[currentIndex + 1])}
@@ -569,6 +632,19 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               title="Next File (Right Arrow)"
             >
               <ChevronRight size={20} />
+            </button>
+          )}
+
+          {/* Universal Floating Exit Fullscreen pill for non-document viewers */}
+          {isModalFullscreen && !isPdf && !isDocx && !isPptx && (
+            <button
+              type="button"
+              onClick={() => setIsModalFullscreen(false)}
+              className="absolute top-4 right-4 z-40 flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 text-white border border-white/20 rounded-full shadow-2xl text-xs font-medium transition backdrop-blur-md"
+              title="Exit Full Screen (Esc)"
+            >
+              <Minimize2 size={13} />
+              <span>Exit Full Screen (Esc)</span>
             </button>
           )}
 
@@ -681,13 +757,15 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </div>
             </div>
           ) : isPdf ? (
-            /* DEDICATED PDF VIEWER WITH NATIVE CANVAS & FALLBACKS */
+            /* DEDICATED PDF VIEWER WITH NATIVE CANVAS & ZERO-OUTLINE PURE DOCUMENT VIEW */
             activeDataUrl ? (
               <PdfViewer
                 dataUrl={activeDataUrl}
                 fileName={file.name}
                 fileSize={file.size}
                 onDownload={handleDownload}
+                isFullscreen={isModalFullscreen}
+                onToggleFullscreen={() => setIsModalFullscreen(!isModalFullscreen)}
               />
             ) : (
               <div className="flex flex-col items-center gap-3 text-zinc-400 p-12">
@@ -697,46 +775,70 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             )
           ) : isDocx ? (
             /* MICROSOFT WORD DOCX PREVIEW */
-            <div className="w-full h-full flex flex-col bg-zinc-100 dark:bg-zinc-950 overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-xs">
-                <div className="flex items-center gap-2">
-                  <FileText size={16} className="text-blue-600" />
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">{file.name}</span>
-                  <span className="text-zinc-400">· Word Document</span>
-                  {docxStats && (
-                    <span className="text-zinc-400 font-mono hidden sm:inline">
-                      ({docxStats.words.toLocaleString()} words · ~{docxStats.readTime} min read)
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {docxStats && (
+            <div className="w-full h-full flex flex-col bg-zinc-100 dark:bg-zinc-950 overflow-hidden relative">
+              {/* Top toolbar only shown in windowed mode */}
+              {!isModalFullscreen && (
+                <div className="flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-xs shrink-0 select-none">
+                  <div className="flex items-center gap-2">
+                    <FileText size={16} className="text-blue-600" />
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">{file.name}</span>
+                    <span className="text-zinc-400">· Word Document</span>
+                    {docxStats && (
+                      <span className="text-zinc-400 font-mono hidden sm:inline">
+                        ({docxStats.words.toLocaleString()} words · ~{docxStats.readTime} min read)
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(docxStats.text);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 2000);
-                      }}
+                      onClick={() => setIsModalFullscreen(true)}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg font-medium text-xs transition"
-                      title="Copy all document text"
+                      title="Read in Distraction-Free Pure Fullscreen"
                     >
-                      {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-                      <span>{copied ? 'Copied' : 'Copy Text'}</span>
+                      <Maximize2 size={13} />
+                      <span>Pure View</span>
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleDownload}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs transition"
-                  >
-                    <Download size={13} />
-                    <span>Download Original</span>
-                  </button>
+                    {docxStats && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(docxStats.text);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg font-medium text-xs transition"
+                        title="Copy all document text"
+                      >
+                        {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                        <span>{copied ? 'Copied' : 'Copy Text'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs transition shadow-xs"
+                    >
+                      <Download size={13} />
+                      <span>Download Original</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 overflow-auto p-6 sm:p-10 flex justify-center">
-                <div className="w-full max-w-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 sm:p-14 docx-rendered-sheet min-h-full">
+              )}
+
+              {/* Document Sheet: zero outlines, zero borders, pure centered reading in fullscreen */}
+              <div
+                className={`flex-1 overflow-auto flex justify-center ${
+                  isModalFullscreen ? 'p-4 sm:p-14 bg-zinc-950' : 'p-6 sm:p-10 bg-zinc-100 dark:bg-zinc-950'
+                }`}
+              >
+                <div
+                  className={`w-full max-w-4xl docx-rendered-sheet min-h-full transition-all ${
+                    isModalFullscreen
+                      ? 'bg-zinc-900 border-0 shadow-none rounded-none p-6 sm:p-14 text-zinc-100'
+                      : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 sm:p-14 text-zinc-900 dark:text-zinc-100'
+                  }`}
+                >
                   {isLoadingDocx ? (
                     <div className="flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
                       <Loader2 className="animate-spin text-blue-500 w-8 h-8" />
@@ -749,70 +851,138 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Fullscreen Floating Minimal HUD */}
+              {isModalFullscreen && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white">
+                  <span className="font-semibold truncate max-w-[150px]">{file.name}</span>
+                  {docxStats && (
+                    <span className="text-zinc-400 font-mono hidden sm:inline">
+                      {docxStats.words.toLocaleString()} words
+                    </span>
+                  )}
+                  <div className="h-3 w-px bg-white/20" />
+                  {docxStats && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(docxStats.text);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="flex items-center gap-1 hover:text-blue-400 transition"
+                    >
+                      {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="flex items-center gap-1 hover:text-blue-400 transition"
+                  >
+                    <Download size={14} />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalFullscreen(false)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                    title="Exit Full Screen (Esc)"
+                  >
+                    <Minimize2 size={13} />
+                    <span>Exit (Esc)</span>
+                  </button>
+                </div>
+              )}
             </div>
           ) : isPptx ? (
             /* POWERPOINT PPTX SLIDE DECK PREVIEW */
-            <div className="w-full h-full flex flex-col bg-zinc-900 text-zinc-100 overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-3 bg-zinc-800 border-b border-zinc-700 text-xs">
-                <div className="flex items-center gap-3">
-                  <Presentation size={16} className="text-amber-400" />
-                  <span className="font-semibold text-white">{file.name}</span>
-                  <span className="text-zinc-400">({slides.length} slides)</span>
-                </div>
+            <div className="w-full h-full flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden relative select-none">
+              {/* Windowed Mode Top Bar */}
+              {!isModalFullscreen && (
+                <div className="flex items-center justify-between px-6 py-3 bg-zinc-900 border-b border-zinc-800 text-xs shrink-0">
+                  <div className="flex items-center gap-3">
+                    <Presentation size={16} className="text-amber-400" />
+                    <span className="font-semibold text-white">{file.name}</span>
+                    <span className="text-zinc-400">({slides.length} slides)</span>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={currentSlideIndex === 0}
-                    onClick={() => setCurrentSlideIndex((i) => Math.max(0, i - 1))}
-                    className="p-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 transition text-white"
-                    title="Previous slide"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="px-3 font-mono text-xs tabular-nums text-zinc-300">
-                    Slide {slides.length > 0 ? currentSlideIndex + 1 : 0} of {slides.length}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={currentSlideIndex >= slides.length - 1}
-                    onClick={() => setCurrentSlideIndex((i) => Math.min(slides.length - 1, i + 1))}
-                    className="p-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 transition text-white"
-                    title="Next slide"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsModalFullscreen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition text-xs font-medium"
+                      title="Present Slideshow Fullscreen"
+                    >
+                      <Maximize2 size={13} />
+                      <span>Present</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={currentSlideIndex === 0}
+                      onClick={() => setCurrentSlideIndex((i) => Math.max(0, i - 1))}
+                      className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 transition text-white"
+                      title="Previous slide (Left Arrow)"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className="px-3 font-mono text-xs tabular-nums text-zinc-300">
+                      Slide {slides.length > 0 ? currentSlideIndex + 1 : 0} of {slides.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={currentSlideIndex >= slides.length - 1}
+                      onClick={() => setCurrentSlideIndex((i) => Math.min(slides.length - 1, i + 1))}
+                      className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 transition text-white"
+                      title="Next slide (Right Arrow / Space)"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Current Slide Display Canvas (16:9) */}
-              <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-zinc-950">
+              {/* Current Slide Canvas (16:9 widescreen) - in Fullscreen: Presentation Mode with ZERO outlines/borders */}
+              <div
+                className={`flex-1 overflow-auto flex items-center justify-center bg-zinc-950 ${
+                  isModalFullscreen ? 'p-0 w-full h-full' : 'p-8'
+                }`}
+              >
                 {isLoadingPptx ? (
                   <div className="flex flex-col items-center gap-3 text-zinc-400">
                     <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
                     <p>Extracting presentation slides...</p>
                   </div>
                 ) : slides.length > 0 ? (
-                  <div className="w-full max-w-4xl aspect-video bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-700/80 rounded-2xl shadow-2xl p-10 flex flex-col justify-between">
+                  <div
+                    className={`w-full max-w-5xl aspect-video bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 flex flex-col justify-between transition-all ${
+                      isModalFullscreen
+                        ? 'border-0 shadow-none rounded-none p-10 sm:p-20'
+                        : 'border border-zinc-800 rounded-2xl shadow-2xl p-10'
+                    }`}
+                  >
                     <div>
                       <span className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-semibold">
                         Slide {currentSlideIndex + 1}
                       </span>
-                      <h2 className="text-2xl font-bold text-white mt-2 leading-tight">
+                      <h2 className="text-2xl sm:text-3xl font-bold text-white mt-3 leading-tight">
                         {slides[currentSlideIndex].title}
                       </h2>
-                      <div className="mt-6 space-y-3">
+                      <div className="mt-8 space-y-4">
                         {slides[currentSlideIndex].content.map((point, idx) => (
-                          <div key={idx} className="flex items-start gap-3 text-sm text-zinc-300 leading-relaxed">
-                            <span className="w-2 h-2 rounded-full bg-amber-400 mt-2 shrink-0" />
+                          <div key={idx} className="flex items-start gap-3.5 text-base text-zinc-300 leading-relaxed">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 mt-2 shrink-0 shadow-xs" />
                             <span>{point}</span>
                           </div>
                         ))}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between text-xs text-zinc-500 pt-4 border-t border-zinc-800">
+                    <div className="flex items-center justify-between text-xs text-zinc-500 pt-6 border-t border-zinc-800/80">
                       <span>{file.name}</span>
-                      <span>Presentation Deck</span>
+                      <span className="font-mono">
+                        {currentSlideIndex + 1} / {slides.length}
+                      </span>
                     </div>
                   </div>
                 ) : (
@@ -823,9 +993,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 )}
               </div>
 
-              {/* Slide Thumbnails Tray */}
-              {slides.length > 1 && (
-                <div className="h-24 bg-zinc-900 border-t border-zinc-800 p-3 flex items-center gap-3 overflow-x-auto select-none">
+              {/* Thumbnails Tray in Windowed Mode only */}
+              {!isModalFullscreen && slides.length > 1 && (
+                <div className="h-24 bg-zinc-900 border-t border-zinc-800 p-3 flex items-center gap-3 overflow-x-auto select-none shrink-0">
                   {slides.map((s, idx) => (
                     <button
                       key={idx}
@@ -841,6 +1011,43 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                       <span className="text-[11px] font-semibold text-zinc-200 truncate">{s.title}</span>
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* Fullscreen Floating Presenter HUD */}
+              {isModalFullscreen && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white">
+                  <button
+                    type="button"
+                    disabled={currentSlideIndex === 0}
+                    onClick={() => setCurrentSlideIndex((i) => Math.max(0, i - 1))}
+                    className="p-1 hover:bg-white/15 rounded-full disabled:opacity-30 transition"
+                    title="Previous Slide (Left Arrow)"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="font-mono text-xs tabular-nums text-zinc-200 px-2">
+                    Slide {slides.length > 0 ? currentSlideIndex + 1 : 0} of {slides.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentSlideIndex >= slides.length - 1}
+                    onClick={() => setCurrentSlideIndex((i) => Math.min(slides.length - 1, i + 1))}
+                    className="p-1 hover:bg-white/15 rounded-full disabled:opacity-30 transition"
+                    title="Next Slide (Right Arrow / Space)"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                  <div className="h-3 w-px bg-white/20" />
+                  <button
+                    type="button"
+                    onClick={() => setIsModalFullscreen(false)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                    title="Exit Presentation Mode (Esc)"
+                  >
+                    <Minimize2 size={13} />
+                    <span>Exit (Esc)</span>
+                  </button>
                 </div>
               )}
             </div>
