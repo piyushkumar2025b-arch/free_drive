@@ -95,6 +95,11 @@ export async function uploadToSupabase(
           createdAt: new Date(data.created_at),
           updatedAt: new Date(data.updated_at),
           provider: 'supabase',
+          isPinned: !!data.is_pinned,
+          tags: Array.isArray(data.tags) ? data.tags : [],
+          isPasswordProtected: !!data.is_password_protected,
+          passwordHash: data.password_hash || undefined,
+          passwordHint: data.password_hint || undefined,
         };
       }
     } catch (e) {
@@ -135,6 +140,11 @@ export async function fetchSupabaseFiles(userId: string): Promise<FileItem[]> {
           createdAt: new Date(d.created_at),
           updatedAt: new Date(d.updated_at),
           provider: 'supabase',
+          isPinned: !!d.is_pinned,
+          tags: Array.isArray(d.tags) ? d.tags : [],
+          isPasswordProtected: !!d.is_password_protected,
+          passwordHash: d.password_hash || undefined,
+          passwordHint: d.password_hint || undefined,
         }));
       }
     } catch (e) {
@@ -195,6 +205,17 @@ export async function updateContentInSupabase(fileId: string, newContent: string
   const existing = getLocalSupabaseFiles();
   const updated = existing.map((f) =>
     f.id === fileId ? { ...f, textContent: newContent, size: newSize, updatedAt: new Date() } : f
+  );
+  saveLocalSupabaseFiles(updated);
+}
+
+export async function updateMetadataInSupabase(
+  fileId: string,
+  partial: Partial<FileItem>
+): Promise<void> {
+  const existing = getLocalSupabaseFiles();
+  const updated = existing.map((f) =>
+    f.id === fileId ? { ...f, ...partial, updatedAt: new Date() } : f
   );
   saveLocalSupabaseFiles(updated);
 }

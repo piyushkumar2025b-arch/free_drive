@@ -36,6 +36,11 @@ service cloud.firestore {
         && (!('textContent' in data) || data.textContent == null || (data.textContent is string && data.textContent.size() <= 900000))
         && (!('isChunked' in data) || data.isChunked == null || data.isChunked is bool)
         && (!('totalChunks' in data) || data.totalChunks == null || data.totalChunks is number)
+        && (!('isPinned' in data) || data.isPinned == null || data.isPinned is bool)
+        && (!('tags' in data) || data.tags == null || data.tags is list)
+        && (!('isPasswordProtected' in data) || data.isPasswordProtected == null || data.isPasswordProtected is bool)
+        && (!('passwordHash' in data) || data.passwordHash == null || (data.passwordHash is string && data.passwordHash.size() <= 256))
+        && (!('passwordHint' in data) || data.passwordHint == null || (data.passwordHint is string && data.passwordHint.size() <= 256))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -68,7 +73,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'parentId', 'size', 'mimeType', 'extension', 'dataUrl', 'textContent', 'isChunked', 'totalChunks', 'updatedAt'
+          'name', 'parentId', 'size', 'mimeType', 'extension', 'dataUrl', 'textContent', 'isChunked', 'totalChunks', 'updatedAt',
+          'isPinned', 'tags', 'isPasswordProtected', 'passwordHash', 'passwordHint'
         ]);
 
       // Sub-collection for large chunked files
@@ -83,6 +89,12 @@ service cloud.firestore {
 
         allow update: if false;
       }
+    }
+
+    // User tags collection
+    match /tags/{tagId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isValidId(tagId);
     }
   }
 }

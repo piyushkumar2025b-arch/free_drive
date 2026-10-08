@@ -9,6 +9,7 @@ import {
 } from './lib/firebase';
 import {
   FileItem,
+  TagItem,
   FileCategory,
   SortField,
   SortOrder,
@@ -30,6 +31,13 @@ import {
   syncDatabases,
   replicateFileToOtherProvider,
   extractZipToFolder,
+  togglePinFileItem,
+  setFilePassword,
+  removeFilePassword,
+  updateFileTags,
+  subscribeToUserTags,
+  createOrUpdateUserTag,
+  deleteUserTag,
 } from './services/fileService';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -43,6 +51,11 @@ import { MoveModal } from './components/MoveModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { ProviderModal } from './components/ProviderModal';
 import { UploadProgressWidget, UploadProgressData } from './components/UploadProgressWidget';
+import { FastAccessBar } from './components/FastAccessBar';
+import { SetPasswordModal } from './components/SetPasswordModal';
+import { UnlockPasswordModal } from './components/UnlockPasswordModal';
+import { TagManagerModal } from './components/TagManagerModal';
+import { getTagColorDef } from './lib/tagColors';
 import {
   setForceSupabaseMode,
   getForceSupabaseMode,
@@ -56,6 +69,10 @@ import {
   CheckCircle2,
   Maximize2,
   ShieldCheck,
+  Pin,
+  Lock,
+  Tag,
+  X,
 } from 'lucide-react';
 
 export default function App() {
@@ -107,6 +124,18 @@ export default function App() {
     isComplete: false,
     error: null,
   });
+
+  // Pins, Fast Access, Password & Tags states
+  const [tags, setTags] = useState<TagItem[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const [unlockedFileIds, setUnlockedFileIds] = useState<Set<string>>(new Set());
+  const [fileToSetPassword, setFileToSetPassword] = useState<FileItem | null>(null);
+  const [fileToUnlock, setFileToUnlock] = useState<{
+    file: FileItem;
+    nextAction: 'open' | 'preview' | 'download';
+  } | null>(null);
+  const [tagModalFile, setTagModalFile] = useState<FileItem | null>(null);
+  const [isTagManagerOpen, setIsTagManagerOpen] = useState<boolean>(false);
 
   const markFileAsEdited = (fileId: string) => {
     setRecentlyEditedIds((prev) => {
@@ -200,6 +229,20 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUser, providerConfig]);
 
+  // Subscribe to user tags
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubscribe = subscribeToUserTags(currentUser.uid, (userTags) => {
+      setTags(userTags);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Pinned items for Fast Access
+  const pinnedFiles = useMemo(() => {
+    return files.filter((f) => !!f.isPinned);
+  }, [files]);
+
   // Selected file item
   const selectedFile = useMemo(() => {
     if (!selectedFileId) return null;
@@ -257,18 +300,32 @@ export default function App() {
 
     // Search query filter
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+      const q = searchQuery.toLowerCase().trim();
+      const cleanTagQuery = q.startsWith('#') ? q.slice(1) : q;
       result = result.filter(
         (f) =>
           f.name.toLowerCase().includes(q) ||
           f.extension.toLowerCase().includes(q) ||
-          (f.textContent && f.textContent.toLowerCase().includes(q))
+          (f.textContent && f.textContent.toLowerCase().includes(q)) ||
+          (f.tags &&
+            f.tags.some((tagId) => {
+              const matchedTag = tags.find((t) => t.id === tagId);
+              return matchedTag && matchedTag.name.toLowerCase().includes(cleanTagQuery);
+            }))
       );
       return result;
     }
 
+    // Specific Tag filter
+    if (selectedTagId) {
+      result = result.filter((f) => f.tags?.includes(selectedTagId));
+      return result;
+    }
+
     // Category filter
-    if (selectedCategory === 'folders') {
+    if (selectedCategory === 'pinned') {
+      result = result.filter((f) => !!f.isPinned);
+    } else if (selectedCategory === 'folders') {
       result = result.filter((f) => f.isFolder);
     } else if (selectedCategory === 'documents') {
       result = result.filter(
@@ -328,7 +385,7 @@ export default function App() {
       }
       return sortOrder === 'asc' ? comp : -comp;
     });
-  }, [files, currentFolderId, selectedCategory, searchQuery, sortField, sortOrder]);
+  }, [files, currentFolderId, selectedCategory, selectedTagId, tags, searchQuery, sortField, sortOrder]);
 
   const allFolders = useMemo(() => files.filter((f) => f.isFolder), [files]);
 
@@ -535,6 +592,22 @@ export default function App() {
     }
   };
 
+  const tryOpenFile = (file: FileItem) => {
+    if (file.isPasswordProtected && !unlockedFileIds.has(file.id)) {
+      setFileToUnlock({ file, nextAction: 'open' });
+      return;
+    }
+    handleOpenFile(file);
+  };
+
+  const tryPreviewFile = (file: FileItem) => {
+    if (file.isPasswordProtected && !unlockedFileIds.has(file.id)) {
+      setFileToUnlock({ file, nextAction: 'preview' });
+      return;
+    }
+    setPreviewFile(file);
+  };
+
   const handleSelectFile = (file: FileItem) => {
     setSelectedFileId(file.id);
     setIsDetailsOpen(true);
@@ -555,6 +628,102 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const tryDownloadFile = (file: FileItem) => {
+    if (file.isPasswordProtected && !unlockedFileIds.has(file.id)) {
+      setFileToUnlock({ file, nextAction: 'download' });
+      return;
+    }
+    handleDownloadFile(file);
+  };
+
+  const handleUnlockSuccess = (file: FileItem) => {
+    setUnlockedFileIds((prev) => {
+      const next = new Set(prev);
+      next.add(file.id);
+      return next;
+    });
+
+    if (fileToUnlock) {
+      const action = fileToUnlock.nextAction;
+      setFileToUnlock(null);
+      if (action === 'open') {
+        handleOpenFile(file);
+      } else if (action === 'preview') {
+        setPreviewFile(file);
+      } else if (action === 'download') {
+        handleDownloadFile(file);
+      }
+    }
+  };
+
+  // Pin / Fast Access Toggle
+  const handleTogglePin = async (file: FileItem) => {
+    const nextVal = !file.isPinned;
+    await togglePinFileItem(file, nextVal, file.provider);
+    markFileAsEdited(file.id);
+    setUploadToast(
+      nextVal ? `Pinned "${file.name}" to Fast Access.` : `Unpinned "${file.name}".`
+    );
+    setTimeout(() => setUploadToast(null), 2500);
+  };
+
+  // Password Protection Handlers
+  const handleSavePassword = async (file: FileItem, hash: string, hint?: string) => {
+    await setFilePassword(file, hash, hint, file.provider);
+    markFileAsEdited(file.id);
+    setUnlockedFileIds((prev) => {
+      const next = new Set(prev);
+      next.add(file.id);
+      return next;
+    });
+    setUploadToast(`Password protection active for "${file.name}".`);
+    setTimeout(() => setUploadToast(null), 3000);
+  };
+
+  const handleRemovePassword = async (file: FileItem) => {
+    await removeFilePassword(file, file.provider);
+    markFileAsEdited(file.id);
+    setUploadToast(`Password protection removed from "${file.name}".`);
+    setTimeout(() => setUploadToast(null), 3000);
+  };
+
+  // Tag Handlers
+  const handleToggleFileTag = async (file: FileItem, tagId: string) => {
+    const currentTags = file.tags || [];
+    const nextTags = currentTags.includes(tagId)
+      ? currentTags.filter((id) => id !== tagId)
+      : [...currentTags, tagId];
+    await updateFileTags(file, nextTags, file.provider);
+    markFileAsEdited(file.id);
+  };
+
+  const handleRemoveTagFromFile = async (file: FileItem, tagId: string) => {
+    const currentTags = file.tags || [];
+    const nextTags = currentTags.filter((id) => id !== tagId);
+    await updateFileTags(file, nextTags, file.provider);
+    markFileAsEdited(file.id);
+  };
+
+  const handleCreateTag = async (tag: TagItem) => {
+    if (currentUser) {
+      await createOrUpdateUserTag(currentUser.uid, tag);
+    }
+  };
+
+  const handleDeleteTag = async (tagId: string) => {
+    if (currentUser) {
+      await deleteUserTag(currentUser.uid, tagId);
+    }
+    for (const f of files) {
+      if (f.tags?.includes(tagId)) {
+        await updateFileTags(f, f.tags.filter((t) => t !== tagId), f.provider);
+      }
+    }
+    if (selectedTagId === tagId) {
+      setSelectedTagId(null);
+    }
   };
 
   return (
@@ -659,6 +828,7 @@ export default function App() {
           selectedCategory={selectedCategory}
           onSelectCategory={(cat) => {
             setSelectedCategory(cat);
+            setSelectedTagId(null);
             if (cat !== 'all') {
               setCurrentFolderId(null);
             }
@@ -668,24 +838,80 @@ export default function App() {
           onNewTextFileClick={() => setIsNewTextFileOpen(true)}
           onOpenProvidersModal={() => setIsProviderModalOpen(true)}
           files={files}
+          tags={tags}
+          selectedTagId={selectedTagId}
+          onSelectTag={(tagId) => {
+            setSelectedTagId(tagId);
+            if (tagId) {
+              setSelectedCategory('all');
+            }
+          }}
+          onOpenTagManager={() => {
+            setTagModalFile(null);
+            setIsTagManagerOpen(true);
+          }}
           isUploading={isUploading}
           isCollapsed={isSidebarCollapsed}
         />
 
         {/* Central File Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-zinc-900/60 overflow-hidden relative">
+          {/* Fast Access Shelf */}
+          <FastAccessBar
+            pinnedFiles={pinnedFiles}
+            allTags={tags}
+            onOpenFile={tryOpenFile}
+            onPreviewFile={tryPreviewFile}
+            onUnpinFile={handleTogglePin}
+          />
+
+          {/* Active Tag Filter Banner */}
+          {selectedTagId && (() => {
+            const curTag = tags.find((t) => t.id === selectedTagId);
+            if (!curTag) return null;
+            const colorDef = getTagColorDef(curTag.color);
+            return (
+              <div className="px-6 py-2 bg-zinc-50 dark:bg-zinc-800/40 border-b border-zinc-200/80 dark:border-zinc-800 flex items-center justify-between text-xs select-none">
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-500">Filtered by tag:</span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${colorDef.fullBadge}`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${colorDef.dotBg}`} />
+                    <span>{curTag.name}</span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTagId(null)}
+                  className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline flex items-center gap-1"
+                >
+                  <X size={13} />
+                  <span>Clear filter</span>
+                </button>
+              </div>
+            );
+          })()}
+
           {/* File Grid / List Canvas */}
           <FileList
             files={displayedFiles}
+            allTags={tags}
             viewMode={viewMode}
             selectedFileId={selectedFileId}
             onSelectFile={handleSelectFile}
-            onOpenFile={handleOpenFile}
-            onPreviewFile={(f) => setPreviewFile(f)}
-            onDownloadFile={handleDownloadFile}
+            onOpenFile={tryOpenFile}
+            onPreviewFile={tryPreviewFile}
+            onDownloadFile={tryDownloadFile}
             onRenameFile={(f) => setFileToRename(f)}
             onMoveFile={(f) => setFileToMove(f)}
             onDeleteFile={(f) => setFileToDelete(f)}
+            onTogglePinFile={handleTogglePin}
+            onSetPasswordFile={(f) => setFileToSetPassword(f)}
+            onManageTagsFile={(f) => {
+              setTagModalFile(f);
+              setIsTagManagerOpen(true);
+            }}
             onUploadClick={() => fileInputRef.current?.click()}
             onNewFolderClick={() => setIsNewFolderOpen(true)}
             onDropFiles={handleFileUpload}
@@ -718,12 +944,20 @@ export default function App() {
         {isDetailsOpen && selectedFile && (
           <FileDetailsPanel
             file={selectedFile}
+            allTags={tags}
             onClose={() => setIsDetailsOpen(false)}
-            onPreview={(f) => setPreviewFile(f)}
-            onDownload={handleDownloadFile}
+            onPreview={tryPreviewFile}
+            onDownload={tryDownloadFile}
             onRename={(f) => setFileToRename(f)}
             onMove={(f) => setFileToMove(f)}
             onDelete={(f) => setFileToDelete(f)}
+            onTogglePin={handleTogglePin}
+            onSetPassword={(f) => setFileToSetPassword(f)}
+            onManageTags={(f) => {
+              setTagModalFile(f);
+              setIsTagManagerOpen(true);
+            }}
+            onRemoveTagFromFile={handleRemoveTagFromFile}
           />
         )}
       </div>
@@ -894,6 +1128,38 @@ export default function App() {
         onReplicateAll={handleReplicateAll}
         isSyncing={isSyncing}
         lastSynced={lastSynced}
+      />
+
+      {/* Password Management Modal */}
+      <SetPasswordModal
+        file={fileToSetPassword}
+        isOpen={!!fileToSetPassword}
+        onClose={() => setFileToSetPassword(null)}
+        onSavePassword={handleSavePassword}
+        onRemovePassword={handleRemovePassword}
+      />
+
+      {/* Unlock Password Modal */}
+      <UnlockPasswordModal
+        file={fileToUnlock?.file || null}
+        isOpen={!!fileToUnlock}
+        onClose={() => setFileToUnlock(null)}
+        onUnlockSuccess={handleUnlockSuccess}
+      />
+
+      {/* Tag Manager Modal */}
+      <TagManagerModal
+        isOpen={isTagManagerOpen}
+        onClose={() => {
+          setIsTagManagerOpen(false);
+          setTagModalFile(null);
+        }}
+        file={tagModalFile}
+        allTags={tags}
+        allFiles={files}
+        onCreateTag={handleCreateTag}
+        onDeleteTag={handleDeleteTag}
+        onToggleFileTag={handleToggleFileTag}
       />
 
       {/* Live Upload Progress Widget */}

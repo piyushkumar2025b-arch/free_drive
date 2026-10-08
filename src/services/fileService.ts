@@ -22,8 +22,9 @@ import {
   updateContentInSupabase,
   isSupabaseConfigured,
   getLocalSupabaseFiles,
+  updateMetadataInSupabase,
 } from '../lib/supabase';
-import { FileItem, ProviderConfig } from '../types';
+import { FileItem, TagItem, ProviderConfig } from '../types';
 import JSZip from 'jszip';
 
 const CHUNK_SIZE = 500 * 1024; // 500KB chunk size for base64
@@ -163,6 +164,11 @@ export function subscribeToUserFiles(
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
             updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(),
             provider: 'firebase',
+            isPinned: !!data.isPinned,
+            tags: Array.isArray(data.tags) ? data.tags : [],
+            isPasswordProtected: !!data.isPasswordProtected,
+            passwordHash: data.passwordHash || undefined,
+            passwordHint: data.passwordHint || undefined,
           });
         });
         firebaseFiles = files;
@@ -631,6 +637,246 @@ export async function moveFileItem(
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `files/${fileId}`);
+  }
+}
+
+// Password Hashing via native Web Crypto API (SHA-256)
+export async function hashFilePassword(password: string): Promise<string> {
+  const enc = new TextEncoder();
+  const salt = 'cloudfile_pass_salt_v2_';
+  const data = enc.encode(salt + password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function verifyFilePassword(password: string, expectedHash: string): Promise<boolean> {
+  const hash = await hashFilePassword(password);
+  return hash === expectedHash;
+}
+
+// Toggle Pin / Fast Access
+export async function togglePinFileItem(
+  target: FileItem | string,
+  isPinned: boolean,
+  provider?: 'firebase' | 'supabase'
+): Promise<void> {
+  const fileId = typeof target === 'string' ? target : target.id;
+  const isSupabase =
+    typeof target === 'string' ? provider === 'supabase' : target.provider === 'supabase';
+
+  if (isSupabase) {
+    await updateMetadataInSupabase(fileId, { isPinned });
+    return;
+  }
+
+  const fileRef = doc(db, 'files', fileId);
+  try {
+    await updateDoc(fileRef, {
+      isPinned,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `files/${fileId}`);
+  }
+}
+
+// Set Password Protection
+export async function setFilePassword(
+  target: FileItem | string,
+  passwordHash: string,
+  passwordHint?: string,
+  provider?: 'firebase' | 'supabase'
+): Promise<void> {
+  const fileId = typeof target === 'string' ? target : target.id;
+  const isSupabase =
+    typeof target === 'string' ? provider === 'supabase' : target.provider === 'supabase';
+
+  if (isSupabase) {
+    await updateMetadataInSupabase(fileId, {
+      isPasswordProtected: true,
+      passwordHash,
+      passwordHint: passwordHint || undefined,
+    });
+    return;
+  }
+
+  const fileRef = doc(db, 'files', fileId);
+  try {
+    await updateDoc(fileRef, {
+      isPasswordProtected: true,
+      passwordHash,
+      passwordHint: passwordHint?.trim() || null,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `files/${fileId}`);
+  }
+}
+
+// Remove Password Protection
+export async function removeFilePassword(
+  target: FileItem | string,
+  provider?: 'firebase' | 'supabase'
+): Promise<void> {
+  const fileId = typeof target === 'string' ? target : target.id;
+  const isSupabase =
+    typeof target === 'string' ? provider === 'supabase' : target.provider === 'supabase';
+
+  if (isSupabase) {
+    await updateMetadataInSupabase(fileId, {
+      isPasswordProtected: false,
+      passwordHash: undefined,
+      passwordHint: undefined,
+    });
+    return;
+  }
+
+  const fileRef = doc(db, 'files', fileId);
+  try {
+    await updateDoc(fileRef, {
+      isPasswordProtected: false,
+      passwordHash: null,
+      passwordHint: null,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `files/${fileId}`);
+  }
+}
+
+// Update File Tags
+export async function updateFileTags(
+  target: FileItem | string,
+  tags: string[],
+  provider?: 'firebase' | 'supabase'
+): Promise<void> {
+  const fileId = typeof target === 'string' ? target : target.id;
+  const isSupabase =
+    typeof target === 'string' ? provider === 'supabase' : target.provider === 'supabase';
+
+  if (isSupabase) {
+    await updateMetadataInSupabase(fileId, { tags });
+    return;
+  }
+
+  const fileRef = doc(db, 'files', fileId);
+  try {
+    await updateDoc(fileRef, {
+      tags,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `files/${fileId}`);
+  }
+}
+
+// Default Presets and Tag Management
+export const DEFAULT_TAGS: TagItem[] = [
+  { id: 'tag_work', name: 'Work', color: 'blue' },
+  { id: 'tag_personal', name: 'Personal', color: 'emerald' },
+  { id: 'tag_important', name: 'Important', color: 'rose' },
+  { id: 'tag_finance', name: 'Finance', color: 'amber' },
+  { id: 'tag_project', name: 'Project', color: 'purple' },
+  { id: 'tag_review', name: 'Review', color: 'cyan' },
+];
+
+const LOCAL_TAGS_STORAGE_KEY = 'cloudfile_user_tags_v1';
+
+export function getStoredTags(): TagItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_TAGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return DEFAULT_TAGS;
+}
+
+export function saveStoredTags(tags: TagItem[]): void {
+  try {
+    localStorage.setItem(LOCAL_TAGS_STORAGE_KEY, JSON.stringify(tags));
+  } catch (e) {
+    console.warn('Failed saving local tags', e);
+  }
+}
+
+// Real-time listener for user tags
+export function subscribeToUserTags(
+  userId: string,
+  onUpdate: (tags: TagItem[]) => void
+): () => void {
+  const local = getStoredTags();
+  onUpdate(local);
+
+  try {
+    const q = query(collection(db, 'tags'), where('userId', '==', userId));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        if (!snap.empty) {
+          const list: TagItem[] = [];
+          snap.forEach((d) => {
+            const data = d.data();
+            list.push({
+              id: d.id,
+              name: data.name,
+              color: data.color || 'blue',
+              userId: data.userId,
+            });
+          });
+          saveStoredTags(list);
+          onUpdate(list);
+        } else {
+          onUpdate(getStoredTags());
+        }
+      },
+      (err) => {
+        console.warn('Tags listener warning, using local tags:', err);
+        onUpdate(getStoredTags());
+      }
+    );
+    return () => unsubscribe();
+  } catch {
+    return () => {};
+  }
+}
+
+export async function createOrUpdateUserTag(
+  userId: string,
+  tag: TagItem
+): Promise<TagItem> {
+  const existing = getStoredTags();
+  const next = existing.some((t) => t.id === tag.id)
+    ? existing.map((t) => (t.id === tag.id ? tag : t))
+    : [...existing, tag];
+  saveStoredTags(next);
+
+  try {
+    await setDoc(doc(db, 'tags', tag.id), {
+      name: tag.name.trim(),
+      color: tag.color,
+      userId,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn('Could not persist tag to Firestore, saved locally:', e);
+  }
+  return tag;
+}
+
+export async function deleteUserTag(userId: string, tagId: string): Promise<void> {
+  const existing = getStoredTags();
+  const filtered = existing.filter((t) => t.id !== tagId);
+  saveStoredTags(filtered);
+
+  try {
+    await deleteDoc(doc(db, 'tags', tagId));
+  } catch (e) {
+    console.warn('Could not delete tag from Firestore:', e);
   }
 }
 

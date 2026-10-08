@@ -12,31 +12,50 @@ import {
   Layers,
   Folder,
   Database,
+  Pin,
+  Lock,
+  Unlock,
+  Tag,
+  Plus,
+  ShieldCheck,
 } from 'lucide-react';
-import { FileItem } from '../types';
+import { FileItem, TagItem } from '../types';
 import { formatFileSize } from '../services/fileService';
 import { FileIcon } from './FileIcon';
+import { getTagColorDef } from '../lib/tagColors';
 
 interface FileDetailsPanelProps {
   file: FileItem | null;
+  allTags?: TagItem[];
   onClose: () => void;
   onPreview: (file: FileItem) => void;
   onDownload: (file: FileItem) => void;
   onRename: (file: FileItem) => void;
   onMove: (file: FileItem) => void;
   onDelete: (file: FileItem) => void;
+  onTogglePin?: (file: FileItem) => void;
+  onSetPassword?: (file: FileItem) => void;
+  onManageTags?: (file: FileItem) => void;
+  onRemoveTagFromFile?: (file: FileItem, tagId: string) => void;
 }
 
 export const FileDetailsPanel: React.FC<FileDetailsPanelProps> = ({
   file,
+  allTags = [],
   onClose,
   onPreview,
   onDownload,
   onRename,
   onMove,
   onDelete,
+  onTogglePin,
+  onSetPassword,
+  onManageTags,
+  onRemoveTagFromFile,
 }) => {
   if (!file) return null;
+
+  const fileTags = allTags.filter((t) => file.tags?.includes(t.id));
 
   const formatDate = (date: any) => {
     if (!date) return '-';
@@ -75,7 +94,25 @@ export const FileDetailsPanel: React.FC<FileDetailsPanelProps> = ({
         </div>
 
         {/* Thumbnail Preview Area */}
-        <div className="p-6 flex flex-col items-center justify-center border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/30">
+        <div className="p-6 flex flex-col items-center justify-center border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/30 relative">
+          {/* Status Indicators */}
+          <div className="absolute top-3 left-4 flex items-center gap-1.5">
+            {file.isPinned && (
+              <span className="p-1 rounded-md bg-amber-500 text-white text-[10px] font-semibold flex items-center gap-1 shadow-xs">
+                <Pin size={11} className="rotate-45 fill-white" />
+                <span>Pinned</span>
+              </span>
+            )}
+          </div>
+          <div className="absolute top-3 right-4 flex items-center gap-1.5">
+            {file.isPasswordProtected && (
+              <span className="p-1 rounded-md bg-amber-500 text-white text-[10px] font-semibold flex items-center gap-1 shadow-xs">
+                <Lock size={11} />
+                <span>Locked</span>
+              </span>
+            )}
+          </div>
+
           <div
             onClick={() => !file.isFolder && onPreview(file)}
             className={`w-36 h-36 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/60 shadow-xs flex items-center justify-center overflow-hidden mb-3 ${
@@ -115,36 +152,112 @@ export const FileDetailsPanel: React.FC<FileDetailsPanelProps> = ({
         </div>
 
         {/* Quick Action Buttons */}
-        <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 grid grid-cols-2 gap-2">
-          {!file.isFolder && (
+        <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {!file.isFolder && (
+              <button
+                type="button"
+                onClick={() => onPreview(file)}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-2xs transition"
+              >
+                <Eye size={14} />
+                <span>Preview</span>
+              </button>
+            )}
+            {!file.isFolder ? (
+              <button
+                type="button"
+                onClick={() => onDownload(file)}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-medium transition"
+              >
+                <Download size={14} />
+                <span>Download</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onRename(file)}
+                className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-medium transition"
+              >
+                <Edit2 size={14} />
+                <span>Rename Folder</span>
+              </button>
+            )}
+          </div>
+
+          {/* Pin & Password Protection Buttons */}
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => onPreview(file)}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-2xs transition"
+              onClick={() => onTogglePin?.(file)}
+              className={`flex items-center justify-center gap-1.5 py-2 px-3 border rounded-lg text-xs font-medium transition shadow-2xs ${
+                file.isPinned
+                  ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+                  : 'bg-zinc-50 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 text-zinc-700 dark:text-zinc-300'
+              }`}
             >
-              <Eye size={14} />
-              <span>Preview</span>
+              <Pin size={13} className={`rotate-45 ${file.isPinned ? 'fill-amber-500 text-amber-500' : ''}`} />
+              <span>{file.isPinned ? 'Fast Access (Pinned)' : 'Pin to Fast Access'}</span>
             </button>
-          )}
-          {!file.isFolder ? (
+
             <button
               type="button"
-              onClick={() => onDownload(file)}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-medium transition"
+              onClick={() => onSetPassword?.(file)}
+              className={`flex items-center justify-center gap-1.5 py-2 px-3 border rounded-lg text-xs font-medium transition shadow-2xs ${
+                file.isPasswordProtected
+                  ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+                  : 'bg-zinc-50 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 text-zinc-700 dark:text-zinc-300'
+              }`}
             >
-              <Download size={14} />
-              <span>Download</span>
+              <Lock size={13} className={file.isPasswordProtected ? 'text-amber-500' : ''} />
+              <span>{file.isPasswordProtected ? 'Password Settings' : 'Set Password'}</span>
             </button>
-          ) : (
+          </div>
+        </div>
+
+        {/* Tags Section */}
+        <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <Tag size={13} className="text-zinc-400" />
+              <span>Tags</span>
+            </span>
             <button
               type="button"
-              onClick={() => onRename(file)}
-              className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg text-xs font-medium transition"
+              onClick={() => onManageTags?.(file)}
+              className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
             >
-              <Edit2 size={14} />
-              <span>Rename Folder</span>
+              <Plus size={12} />
+              <span>Manage</span>
             </button>
-          )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {fileTags.length > 0 ? (
+              fileTags.map((tag) => {
+                const colorDef = getTagColorDef(tag.color);
+                return (
+                  <span
+                    key={tag.id}
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${colorDef.fullBadge}`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${colorDef.dotBg}`} />
+                    <span>{tag.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveTagFromFile?.(file, tag.id)}
+                      className="opacity-60 hover:opacity-100 ml-0.5"
+                      title="Remove tag"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                );
+              })
+            ) : (
+              <span className="text-xs text-zinc-400 italic">No tags assigned.</span>
+            )}
+          </div>
         </div>
 
         {/* Metadata Properties List */}

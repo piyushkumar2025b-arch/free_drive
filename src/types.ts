@@ -1,3 +1,10 @@
+export interface TagItem {
+  id: string;
+  name: string;
+  color: string; // e.g., 'blue' | 'emerald' | 'amber' | 'rose' | 'purple' | 'cyan' | 'indigo' | 'orange'
+  userId?: string;
+}
+
 export interface FileItem {
   id: string;
   name: string;
@@ -14,10 +21,16 @@ export interface FileItem {
   createdAt: any;
   updatedAt: any;
   provider?: 'firebase' | 'supabase';
+  isPinned?: boolean;
+  tags?: string[];
+  isPasswordProtected?: boolean;
+  passwordHash?: string;
+  passwordHint?: string;
 }
 
 export type FileCategory =
   | 'all'
+  | 'pinned'
   | 'folders'
   | 'documents'
   | 'images'

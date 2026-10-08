@@ -45,6 +45,26 @@
         "totalChunks": {
           "type": "number"
         },
+        "isPinned": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isPasswordProtected": {
+          "type": "boolean"
+        },
+        "passwordHash": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "passwordHint": {
+          "type": "string",
+          "maxLength": 256
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -61,6 +81,18 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "TagItem": {
+      "title": "TagItem",
+      "description": "Custom user tag with name and color",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 50 },
+        "color": { "type": "string", "maxLength": 30 },
+        "userId": { "type": "string" }
+      },
+      "required": ["name", "color", "userId"]
     },
     "FileChunk": {
       "title": "FileChunk",

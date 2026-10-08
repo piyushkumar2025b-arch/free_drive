@@ -12,9 +12,13 @@ import {
   Archive,
   Database,
   CheckCircle2,
+  Pin,
+  Tag,
+  Plus,
 } from 'lucide-react';
-import { FileCategory, FileItem } from '../types';
+import { FileCategory, FileItem, TagItem } from '../types';
 import { formatFileSize } from '../services/fileService';
+import { getTagColorDef } from '../lib/tagColors';
 
 interface SidebarProps {
   selectedCategory: FileCategory;
@@ -24,6 +28,10 @@ interface SidebarProps {
   onNewTextFileClick: () => void;
   onOpenProvidersModal: () => void;
   files: FileItem[];
+  tags: TagItem[];
+  selectedTagId: string | null;
+  onSelectTag: (tagId: string | null) => void;
+  onOpenTagManager: () => void;
   isUploading: boolean;
   isCollapsed: boolean;
 }
@@ -36,11 +44,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewTextFileClick,
   onOpenProvidersModal,
   files,
+  tags,
+  selectedTagId,
+  onSelectTag,
+  onOpenTagManager,
   isUploading,
   isCollapsed,
 }) => {
   const totalFiles = files.filter((f) => !f.isFolder).length;
   const totalFolders = files.filter((f) => f.isFolder).length;
+  const totalPinned = files.filter((f) => !!f.isPinned).length;
   const totalBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
 
   const categories: { id: FileCategory; label: string; icon: React.ReactNode; count: number }[] = [
@@ -49,6 +62,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'All Files',
       icon: <Files size={16} />,
       count: files.length,
+    },
+    {
+      id: 'pinned',
+      label: 'Fast Access',
+      icon: <Pin size={16} className="text-amber-500 rotate-45" />,
+      count: totalPinned,
     },
     {
       id: 'folders',
@@ -219,6 +238,58 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   >
                     {c.count}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Tags Section */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between px-3 pb-1">
+            <span className="text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
+              Tags
+            </span>
+            <button
+              type="button"
+              onClick={onOpenTagManager}
+              className="p-1 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-md hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition"
+              title="Create & manage tags"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
+
+          <nav className="space-y-0.5 max-h-48 overflow-y-auto pr-1">
+            {tags.map((tag) => {
+              const isSelected = selectedTagId === tag.id;
+              const colorDef = getTagColorDef(tag.color);
+              const tagFileCount = files.filter((f) => f.tags?.includes(tag.id)).length;
+
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => onSelectTag(isSelected ? null : tag.id)}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition ${
+                    isSelected
+                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 hover:text-zinc-900 dark:hover:text-zinc-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <span className={`w-2 h-2 rounded-full ${colorDef.dotBg} shrink-0`} />
+                    <span className="truncate">{tag.name}</span>
+                  </div>
+                  <span
+                    className={`text-[11px] tabular-nums ${
+                      isSelected
+                        ? 'text-blue-600 dark:text-blue-400 font-semibold'
+                        : 'text-zinc-400 dark:text-zinc-500'
+                    }`}
+                  >
+                    {tagFileCount}
                   </span>
                 </button>
               );

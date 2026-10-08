@@ -13,13 +13,19 @@ import {
   Clock,
   HardDrive,
   Check,
+  Pin,
+  Lock,
+  Tag,
+  KeyRound,
 } from 'lucide-react';
-import { FileItem, ViewMode } from '../types';
+import { FileItem, TagItem, ViewMode } from '../types';
 import { formatFileSize } from '../services/fileService';
 import { FileIcon } from './FileIcon';
+import { getTagColorDef } from '../lib/tagColors';
 
 interface FileListProps {
   files: FileItem[];
+  allTags?: TagItem[];
   viewMode: ViewMode;
   selectedFileId: string | null;
   onSelectFile: (file: FileItem) => void;
@@ -29,6 +35,9 @@ interface FileListProps {
   onRenameFile: (file: FileItem) => void;
   onMoveFile: (file: FileItem) => void;
   onDeleteFile: (file: FileItem) => void;
+  onTogglePinFile?: (file: FileItem) => void;
+  onSetPasswordFile?: (file: FileItem) => void;
+  onManageTagsFile?: (file: FileItem) => void;
   onUploadClick: () => void;
   onNewFolderClick: () => void;
   onDropFiles: (files: FileList) => void;
@@ -39,6 +48,7 @@ interface FileListProps {
 
 export const FileList: React.FC<FileListProps> = ({
   files,
+  allTags = [],
   viewMode,
   selectedFileId,
   onSelectFile,
@@ -48,6 +58,9 @@ export const FileList: React.FC<FileListProps> = ({
   onRenameFile,
   onMoveFile,
   onDeleteFile,
+  onTogglePinFile,
+  onSetPasswordFile,
+  onManageTagsFile,
   onUploadClick,
   onNewFolderClick,
   onDropFiles,
@@ -154,6 +167,7 @@ export const FileList: React.FC<FileListProps> = ({
               (file.mimeType.startsWith('image/') ||
                 ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(file.extension.toLowerCase()));
             const isSelected = selectedFileId === file.id;
+            const fileTags = allTags.filter((t) => file.tags?.includes(t.id));
 
             return (
               <div
@@ -193,6 +207,29 @@ export const FileList: React.FC<FileListProps> = ({
                       size={46}
                     />
                   )}
+
+                  {/* Corner Status Badges (Pin & Lock) */}
+                  <div className="absolute top-2 left-2 flex items-center gap-1 z-10">
+                    {file.isPinned && (
+                      <span
+                        className="p-1 rounded-md bg-amber-500 text-white shadow-xs"
+                        title="Pinned to Fast Access"
+                      >
+                        <Pin size={12} className="rotate-45 fill-white" />
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+                    {file.isPasswordProtected && (
+                      <span
+                        className="p-1 rounded-md bg-amber-500/95 text-white shadow-xs backdrop-blur-2xs"
+                        title="Password Protected"
+                      >
+                        <Lock size={12} />
+                      </span>
+                    )}
+                  </div>
 
                   {/* Hover Quick Action Overlay */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-2xs">
@@ -250,6 +287,29 @@ export const FileList: React.FC<FileListProps> = ({
                       <span>·</span>
                       <span>{recentlyEditedIds?.has(file.id) ? 'Just now' : formatDate(file.updatedAt)}</span>
                     </div>
+
+                    {/* Tag Badges */}
+                    {fileTags.length > 0 && (
+                      <div className="flex items-center gap-1 mt-2 flex-wrap">
+                        {fileTags.slice(0, 3).map((tag) => {
+                          const colorDef = getTagColorDef(tag.color);
+                          return (
+                            <span
+                              key={tag.id}
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-md border ${colorDef.fullBadge}`}
+                            >
+                              <span className={`w-1 h-1 rounded-full ${colorDef.dotBg}`} />
+                              <span className="truncate max-w-[70px]">{tag.name}</span>
+                            </span>
+                          );
+                        })}
+                        {fileTags.length > 3 && (
+                          <span className="text-[10px] text-zinc-400 font-medium">
+                            +{fileTags.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Context Menu Dropdown */}
@@ -274,7 +334,61 @@ export const FileList: React.FC<FileListProps> = ({
                             setActiveMenuFileId(null);
                           }}
                         />
-                        <div className="absolute right-0 top-7 z-40 w-40 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 text-xs text-zinc-700 dark:text-zinc-200 animate-in fade-in duration-100">
+                        <div className="absolute right-0 top-7 z-40 w-44 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 text-xs text-zinc-700 dark:text-zinc-200 animate-in fade-in duration-100">
+                          {/* Fast Access Pin Option */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuFileId(null);
+                              onTogglePinFile?.(file);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-700/60 transition"
+                          >
+                            <Pin
+                              size={14}
+                              className={
+                                file.isPinned
+                                  ? 'text-amber-500 fill-amber-500 rotate-45'
+                                  : 'text-zinc-400 rotate-45'
+                              }
+                            />
+                            <span>{file.isPinned ? 'Unpin from Fast Access' : 'Pin to Fast Access'}</span>
+                          </button>
+
+                          {/* Password Protection Option */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuFileId(null);
+                              onSetPasswordFile?.(file);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-700/60 transition"
+                          >
+                            <Lock
+                              size={14}
+                              className={file.isPasswordProtected ? 'text-amber-500' : 'text-zinc-400'}
+                            />
+                            <span>{file.isPasswordProtected ? 'Password Settings' : 'Protect with Password'}</span>
+                          </button>
+
+                          {/* Manage Tags Option */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuFileId(null);
+                              onManageTagsFile?.(file);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-700/60 transition"
+                          >
+                            <Tag size={14} className="text-zinc-400" />
+                            <span>Assign Tags...</span>
+                          </button>
+
+                          <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
+
                           {!file.isFolder && (
                             <button
                               type="button"
@@ -356,6 +470,7 @@ export const FileList: React.FC<FileListProps> = ({
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-800/40 text-zinc-500 font-semibold select-none">
                 <th className="py-3.5 px-6">Name</th>
+                <th className="py-3.5 px-4">Tags</th>
                 <th className="py-3.5 px-4">Type</th>
                 <th className="py-3.5 px-4">Size</th>
                 <th className="py-3.5 px-4">Provider</th>
@@ -366,6 +481,8 @@ export const FileList: React.FC<FileListProps> = ({
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
               {files.map((file) => {
                 const isSelected = selectedFileId === file.id;
+                const fileTags = allTags.filter((t) => file.tags?.includes(t.id));
+
                 return (
                   <tr
                     key={file.id}
@@ -383,7 +500,7 @@ export const FileList: React.FC<FileListProps> = ({
                           e.stopPropagation();
                           onOpenFile(file);
                         }}
-                        className="flex items-center gap-3.5 min-w-0 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+                        className="flex items-center gap-3 min-w-0 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                         title={file.isFolder ? 'Open folder' : 'Preview file'}
                       >
                         <FileIcon
@@ -392,15 +509,62 @@ export const FileList: React.FC<FileListProps> = ({
                           extension={file.extension}
                           size={20}
                         />
-                        <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-sm sm:max-w-md">
+                        <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-xs sm:max-w-sm">
                           {file.name}
                         </span>
+
+                        {/* Badges beside name */}
+                        {file.isPinned && (
+                          <span
+                            className="p-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0"
+                            title="Pinned to Fast Access"
+                          >
+                            <Pin size={12} className="rotate-45 fill-amber-500" />
+                          </span>
+                        )}
+
+                        {file.isPasswordProtected && (
+                          <span
+                            className="p-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0"
+                            title="Password Protected"
+                          >
+                            <Lock size={12} />
+                          </span>
+                        )}
+
                         {recentlyEditedIds?.has(file.id) && (
                           <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-900/60 shrink-0">
                             Edited
                           </span>
                         )}
                       </div>
+                    </td>
+
+                    {/* Tags column */}
+                    <td className="py-3.5 px-4">
+                      {fileTags.length > 0 ? (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {fileTags.slice(0, 2).map((t) => {
+                            const colorDef = getTagColorDef(t.color);
+                            return (
+                              <span
+                                key={t.id}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${colorDef.fullBadge}`}
+                              >
+                                <span className={`w-1 h-1 rounded-full ${colorDef.dotBg}`} />
+                                <span className="truncate max-w-[65px]">{t.name}</span>
+                              </span>
+                            );
+                          })}
+                          {fileTags.length > 2 && (
+                            <span className="text-[10px] text-zinc-400 font-medium">
+                              +{fileTags.length - 2}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-zinc-400 text-[11px]">-</span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-zinc-500 dark:text-zinc-400">
@@ -428,7 +592,54 @@ export const FileList: React.FC<FileListProps> = ({
                     </td>
 
                     <td className="py-3.5 px-6 text-right">
-                      <div className="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        {/* Pin Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onTogglePinFile?.(file);
+                          }}
+                          className={`p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition ${
+                            file.isPinned
+                              ? 'text-amber-500'
+                              : 'text-zinc-400 hover:text-amber-500'
+                          }`}
+                          title={file.isPinned ? 'Unpin from Fast Access' : 'Pin to Fast Access'}
+                        >
+                          <Pin size={15} className={`rotate-45 ${file.isPinned ? 'fill-amber-500' : ''}`} />
+                        </button>
+
+                        {/* Password Lock Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSetPasswordFile?.(file);
+                          }}
+                          className={`p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition ${
+                            file.isPasswordProtected
+                              ? 'text-amber-500'
+                              : 'text-zinc-400 hover:text-amber-500'
+                          }`}
+                          title={file.isPasswordProtected ? 'Password Settings' : 'Protect with Password'}
+                        >
+                          <Lock size={15} />
+                        </button>
+
+                        {/* Tags Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onManageTagsFile?.(file);
+                          }}
+                          className="p-1.5 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                          title="Assign Tags"
+                        >
+                          <Tag size={15} />
+                        </button>
+
                         {!file.isFolder && (
                           <button
                             type="button"
@@ -439,7 +650,7 @@ export const FileList: React.FC<FileListProps> = ({
                             className="p-1.5 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
                             title="Preview"
                           >
-                            <Eye size={16} />
+                            <Eye size={15} />
                           </button>
                         )}
                         {!file.isFolder && (
@@ -452,7 +663,7 @@ export const FileList: React.FC<FileListProps> = ({
                             className="p-1.5 text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
                             title="Download"
                           >
-                            <Download size={16} />
+                            <Download size={15} />
                           </button>
                         )}
                         <button
@@ -464,7 +675,7 @@ export const FileList: React.FC<FileListProps> = ({
                           className="p-1.5 text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
                           title="Rename"
                         >
-                          <Edit2 size={16} />
+                          <Edit2 size={15} />
                         </button>
                         <button
                           type="button"
@@ -475,7 +686,7 @@ export const FileList: React.FC<FileListProps> = ({
                           className="p-1.5 text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
                           title="Move"
                         >
-                          <CornerDownRight size={16} />
+                          <CornerDownRight size={15} />
                         </button>
                         <button
                           type="button"
@@ -486,7 +697,7 @@ export const FileList: React.FC<FileListProps> = ({
                           className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
                           title="Delete"
                         >
-                          <Trash2 size={16} />
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>
