@@ -97,7 +97,7 @@ export function isTextFile(mimeType: string, extension: string): boolean {
     'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'php',
     'sh', 'bash', 'zsh', 'yaml', 'yml', 'xml', 'sql', 'csv',
     'tsv', 'log', 'env', 'conf', 'ini', 'dockerfile', 'gitignore',
-    'svg',
+    'svg', 'vue', 'svelte', 'graphql', 'lua', 'r', 'swift', 'kt', 'dart', 'proto', 'toml', 'lock',
   ];
   return textExtensions.includes(extension.toLowerCase());
 }
@@ -306,9 +306,7 @@ export async function uploadFile(
   try {
     if (isText && file.size < 800 * 1024) {
       textContent = await readFileAsText(file);
-      if (file.type.includes('svg')) {
-        dataUrl = await readFileAsDataUrl(file);
-      }
+      dataUrl = await readFileAsDataUrl(file);
     } else {
       dataUrl = await readFileAsDataUrl(file);
     }
@@ -810,10 +808,15 @@ export async function extractZipToFolder(
           const textContent = await entry.file.async('string');
           await createTextFile(fileName, textContent, userId, parentId, providerConfig);
         } else {
-          const b64 = await entry.file.async('base64');
-          const mimeType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/octet-stream';
+          const uint8 = await entry.file.async('uint8array');
+          let mimeType = 'application/octet-stream';
+          if (ext === 'png') mimeType = 'image/png';
+          else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+          else if (ext === 'gif') mimeType = 'image/gif';
+          else if (ext === 'webp') mimeType = 'image/webp';
+          else if (ext === 'pdf') mimeType = 'application/pdf';
           const fileObj = new File(
-            [Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))],
+            [uint8 as any],
             fileName,
             { type: mimeType }
           );

@@ -189,8 +189,11 @@ export default function App() {
         setErrorMsg(null);
       },
       (err) => {
-        console.error('Subscription error:', err);
-        setErrorMsg('Database synchronization issue. Check security rules and network.');
+        console.warn('Subscription sync notice:', err);
+        // Only notify if not a temporary connection hiccup
+        if (currentUser && !currentUser.isAnonymous && err.message?.includes('permission')) {
+          setErrorMsg('Sign in to access your saved files.');
+        }
       }
     );
 
@@ -604,20 +607,36 @@ export default function App() {
         isSyncing={isSyncing}
       />
 
-      {/* Error Banner */}
+      {/* User-Friendly Notification Banner */}
       {errorMsg && (
-        <div className="bg-rose-50 dark:bg-rose-950/80 border-b border-rose-200 dark:border-rose-900 px-6 py-2.5 flex items-center justify-between text-xs text-rose-700 dark:text-rose-300">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={15} />
-            <span>{errorMsg}</span>
+        <div className="bg-amber-50 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-900 px-6 py-2.5 flex items-center justify-between text-xs text-amber-800 dark:text-amber-200">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle size={15} className="text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              {errorMsg.includes('{') || errorMsg.includes('Missing or insufficient')
+                ? 'Sign in to access your persistent cloud storage across all sessions and devices.'
+                : errorMsg}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setErrorMsg(null)}
-            className="text-rose-500 hover:text-rose-700 font-bold"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-3">
+            {(!currentUser || currentUser.isAnonymous) && (
+              <button
+                type="button"
+                onClick={signInWithGoogle}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition"
+              >
+                Sign In
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setErrorMsg(null)}
+              className="text-amber-600 dark:text-amber-400 hover:text-amber-800 font-bold px-1"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 

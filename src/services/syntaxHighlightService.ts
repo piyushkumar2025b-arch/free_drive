@@ -10,6 +10,14 @@ import 'prismjs/components/prism-markdown';
 import 'prismjs/components/prism-sql';
 import 'prismjs/components/prism-bash';
 import 'prismjs/components/prism-yaml';
+import 'prismjs/components/prism-c';
+import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-csharp';
+import 'prismjs/components/prism-java';
+import 'prismjs/components/prism-go';
+import 'prismjs/components/prism-rust';
+import 'prismjs/components/prism-php';
+import 'prismjs/components/prism-docker';
 
 export function getLanguageFromExtension(ext: string): string {
   switch (ext.toLowerCase()) {
@@ -22,6 +30,27 @@ export function getLanguageFromExtension(ext: string): string {
       return 'javascript';
     case 'py':
       return 'python';
+    case 'java':
+      return 'java';
+    case 'c':
+    case 'h':
+      return 'c';
+    case 'cpp':
+    case 'hpp':
+    case 'cc':
+    case 'cxx':
+      return 'cpp';
+    case 'cs':
+      return 'csharp';
+    case 'go':
+      return 'go';
+    case 'rs':
+      return 'rust';
+    case 'php':
+      return 'php';
+    case 'dockerfile':
+    case 'docker':
+      return 'docker';
     case 'html':
     case 'htm':
     case 'xml':

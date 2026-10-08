@@ -25,6 +25,7 @@ import {
   Folder,
   ExternalLink,
   FolderOpen,
+  Search,
 } from 'lucide-react';
 import { FileItem } from '../types';
 import {
@@ -39,12 +40,14 @@ import {
   PptxSlide,
   inspectZipArchive,
   ZipEntryItem,
+  readZipEntryContent,
 } from '../services/documentParserService';
 import {
   highlightCode,
   getLanguageFromExtension,
 } from '../services/syntaxHighlightService';
 import { FileIcon } from './FileIcon';
+import { PdfViewer } from './PdfViewer';
 
 interface FilePreviewModalProps {
   file: FileItem | null;
@@ -101,6 +104,17 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [zipEntries, setZipEntries] = useState<ZipEntryItem[]>([]);
   const [isLoadingZip, setIsLoadingZip] = useState<boolean>(false);
   const [isExtractingZip, setIsExtractingZip] = useState<boolean>(false);
+  const [zipSearch, setZipSearch] = useState<string>('');
+  const [previewArchiveEntry, setPreviewArchiveEntry] = useState<{
+    name: string;
+    content?: string;
+    dataUrl?: string;
+  } | null>(null);
+  const [isLoadingEntry, setIsLoadingEntry] = useState<boolean>(false);
+
+  // SVG & Code View Toggles
+  const [svgViewMode, setSvgViewMode] = useState<'image' | 'code'>('image');
+  const [codeSearch, setCodeSearch] = useState<string>('');
 
   const ext = file.extension.toLowerCase();
   const mime = file.mimeType.toLowerCase();
@@ -368,6 +382,26 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     return highlightCode(textContent, lang);
   }, [isCodeOrText, isEditingText, textContent, ext]);
 
+  // Word DOCX Statistics
+  const docxStats = useMemo(() => {
+    if (!docxHtml) return null;
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = docxHtml;
+    const text = tempDiv.textContent || '';
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    const readTime = Math.max(1, Math.ceil(words / 200));
+    return { words, readTime, text };
+  }, [docxHtml]);
+
+  // Filtered Archive Entries
+  const filteredZipEntries = useMemo(() => {
+    if (!zipSearch.trim()) return zipEntries;
+    const q = zipSearch.toLowerCase();
+    return zipEntries.filter(
+      (e) => e.name.toLowerCase().includes(q) || e.relativePath.toLowerCase().includes(q)
+    );
+  }, [zipEntries, zipSearch]);
+
   return (
     <div
       role="dialog"
@@ -546,41 +580,52 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           ) : isImage ? (
             /* IMAGE PREVIEW */
             <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
-              <div
-                className="overflow-auto w-full h-full flex items-center justify-center p-6 select-none"
-                style={{
-                  backgroundImage:
-                    'radial-gradient(circle, rgba(120,120,120,0.15) 1px, transparent 1px)',
-                  backgroundSize: '20px 20px',
-                }}
-              >
-                {activeDataUrl || (ext === 'svg' && (textContent || file.textContent)) ? (
-                  <img
-                    src={
-                      activeDataUrl ||
-                      (ext === 'svg'
-                        ? `data:image/svg+xml;utf8,${encodeURIComponent(textContent || file.textContent || '')}`
-                        : '')
-                    }
-                    alt={file.name}
-                    className="max-h-full max-w-full object-contain transition-transform duration-100 shadow-xl rounded-lg"
-                    style={{
-                      transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                    }}
+              {ext === 'svg' && svgViewMode === 'code' ? (
+                <div className="w-full h-full flex flex-col bg-zinc-950 text-zinc-100 font-mono text-xs p-4 overflow-auto">
+                  <textarea
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                    className="w-full h-full bg-transparent resize-none outline-none font-mono text-xs leading-6"
+                    spellCheck={false}
                   />
-                ) : (
-                  <div className="text-center text-zinc-400 p-8 flex flex-col items-center gap-3">
-                    <p className="text-sm font-medium">Image preview not available</p>
-                    <button
-                      type="button"
-                      onClick={handleDownload}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold shadow-xs"
-                    >
-                      Download Image
-                    </button>
-                  </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div
+                  className="overflow-auto w-full h-full flex items-center justify-center p-6 select-none"
+                  style={{
+                    backgroundImage:
+                      'radial-gradient(circle, rgba(120,120,120,0.15) 1px, transparent 1px)',
+                    backgroundSize: '20px 20px',
+                  }}
+                >
+                  {activeDataUrl || (ext === 'svg' && (textContent || file.textContent)) ? (
+                    <img
+                      src={
+                        activeDataUrl ||
+                        (ext === 'svg'
+                          ? `data:image/svg+xml;utf8,${encodeURIComponent(textContent || file.textContent || '')}`
+                          : '')
+                      }
+                      alt={file.name}
+                      className="max-h-full max-w-full object-contain transition-transform duration-100 shadow-xl rounded-lg"
+                      style={{
+                        transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                      }}
+                    />
+                  ) : (
+                    <div className="text-center text-zinc-400 p-8 flex flex-col items-center gap-3">
+                      <p className="text-sm font-medium">Image preview not available</p>
+                      <button
+                        type="button"
+                        onClick={handleDownload}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold shadow-xs"
+                      >
+                        Download Image
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Floating Image Control Bar */}
               <div className="absolute bottom-6 flex items-center gap-2 bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-zinc-200 dark:border-zinc-700 px-4 py-2 rounded-full shadow-xl text-xs text-zinc-700 dark:text-zinc-300">
@@ -620,38 +665,36 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 >
                   Reset
                 </button>
+
+                {ext === 'svg' && (
+                  <>
+                    <div className="h-3 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
+                    <button
+                      type="button"
+                      onClick={() => setSvgViewMode(svgViewMode === 'image' ? 'code' : 'image')}
+                      className="px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline transition"
+                    >
+                      {svgViewMode === 'image' ? 'Source Code' : 'Graphic'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-          ) : isPdf && activeDataUrl ? (
-            /* PDF PREVIEW WITH TOOLBAR */
-            <div className="w-full h-full flex flex-col bg-zinc-900 overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-2.5 bg-zinc-800 text-xs text-zinc-300 border-b border-zinc-700">
-                <div className="flex items-center gap-2">
-                  <FileText size={15} className="text-red-400" />
-                  <span className="font-medium text-white">{file.name}</span>
-                  <span>·</span>
-                  <span className="text-zinc-400">{formatFileSize(file.size)}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <a
-                    href={activeDataUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition"
-                  >
-                    <ExternalLink size={13} />
-                    <span>Open in New Tab</span>
-                  </a>
-                </div>
+          ) : isPdf ? (
+            /* DEDICATED PDF VIEWER WITH NATIVE CANVAS & FALLBACKS */
+            activeDataUrl ? (
+              <PdfViewer
+                dataUrl={activeDataUrl}
+                fileName={file.name}
+                fileSize={file.size}
+                onDownload={handleDownload}
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-zinc-400 p-12">
+                <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+                <p className="text-sm font-medium">Assembling and loading PDF file...</p>
               </div>
-              <div className="flex-1 w-full h-full p-2 bg-zinc-950">
-                <iframe
-                  src={activeDataUrl}
-                  title={file.name}
-                  className="w-full h-full rounded-lg border-0 bg-white"
-                />
-              </div>
-            </div>
+            )
           ) : isDocx ? (
             /* MICROSOFT WORD DOCX PREVIEW */
             <div className="w-full h-full flex flex-col bg-zinc-100 dark:bg-zinc-950 overflow-hidden">
@@ -659,16 +702,38 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <div className="flex items-center gap-2">
                   <FileText size={16} className="text-blue-600" />
                   <span className="font-semibold text-zinc-900 dark:text-zinc-100">{file.name}</span>
-                  <span className="text-zinc-400">· Microsoft Word Document</span>
+                  <span className="text-zinc-400">· Word Document</span>
+                  {docxStats && (
+                    <span className="text-zinc-400 font-mono hidden sm:inline">
+                      ({docxStats.words.toLocaleString()} words · ~{docxStats.readTime} min read)
+                    </span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs transition"
-                >
-                  <Download size={13} />
-                  <span>Download Original</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  {docxStats && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(docxStats.text);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg font-medium text-xs transition"
+                      title="Copy all document text"
+                    >
+                      {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                      <span>{copied ? 'Copied' : 'Copy Text'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs transition"
+                  >
+                    <Download size={13} />
+                    <span>Download Original</span>
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-auto p-6 sm:p-10 flex justify-center">
                 <div className="w-full max-w-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 sm:p-14 docx-rendered-sheet min-h-full">
@@ -791,7 +856,19 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                  {/* Search inside archive */}
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      placeholder="Search archive..."
+                      value={zipSearch}
+                      onChange={(e) => setZipSearch(e.target.value)}
+                      className="pl-7 pr-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs outline-none focus:border-amber-500 w-36 sm:w-48 text-zinc-900 dark:text-zinc-100"
+                    />
+                  </div>
+
                   {onExtractZip && (
                     <button
                       type="button"
@@ -819,7 +896,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </div>
 
               {/* Archive File List */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-auto relative">
                 {isLoadingZip ? (
                   <div className="flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
                     <Loader2 className="animate-spin text-amber-500 w-8 h-8" />
@@ -833,10 +910,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                         <th className="py-2.5 px-4">Path</th>
                         <th className="py-2.5 px-4">Size</th>
                         <th className="py-2.5 px-4">Date</th>
+                        <th className="py-2.5 px-4 text-right pr-6">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-mono">
-                      {zipEntries.map((entry, idx) => (
+                      {filteredZipEntries.map((entry, idx) => (
                         <tr
                           key={idx}
                           className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition-colors"
@@ -856,10 +934,84 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                             {entry.isFolder ? '-' : formatFileSize(entry.size)}
                           </td>
                           <td className="py-2.5 px-4 text-zinc-500">{entry.date.toLocaleDateString()}</td>
+                          <td className="py-2.5 px-4 text-right pr-6">
+                            {!entry.isFolder && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (!activeDataUrl) return;
+                                  setIsLoadingEntry(true);
+                                  try {
+                                    const res = await readZipEntryContent(activeDataUrl, entry.relativePath);
+                                    setPreviewArchiveEntry({
+                                      name: entry.name,
+                                      content: res.text,
+                                      dataUrl: res.dataUrl,
+                                    });
+                                  } catch (err) {
+                                    console.warn('Could not preview zip entry', err);
+                                  } finally {
+                                    setIsLoadingEntry(false);
+                                  }
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg transition"
+                              >
+                                View
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       ))}
+                      {filteredZipEntries.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-8 text-zinc-400 font-sans">
+                            No matching items found in archive.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+                )}
+
+                {/* Inner Entry Preview Modal / Overlay */}
+                {previewArchiveEntry && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-6 z-30">
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50">
+                        <div className="flex items-center gap-2">
+                          <FileText size={15} className="text-blue-500" />
+                          <span className="font-semibold text-xs text-zinc-900 dark:text-zinc-100">
+                            {previewArchiveEntry.name} (inside archive)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewArchiveEntry(null)}
+                          className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div className="p-4 overflow-auto flex-1 font-mono text-xs leading-relaxed">
+                        {previewArchiveEntry.dataUrl ? (
+                          <div className="flex items-center justify-center p-4">
+                            <img
+                              src={previewArchiveEntry.dataUrl}
+                              alt={previewArchiveEntry.name}
+                              className="max-h-80 max-w-full rounded-lg object-contain shadow"
+                            />
+                          </div>
+                        ) : previewArchiveEntry.content !== undefined ? (
+                          <pre className="whitespace-pre-wrap text-zinc-800 dark:text-zinc-200">
+                            {previewArchiveEntry.content || '(Empty text)'}
+                          </pre>
+                        ) : (
+                          <p className="text-zinc-400">Binary format preview unavailable inside zip.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -1018,7 +1170,24 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   <span className="tabular-nums font-mono">{textContent.length.toLocaleString()} chars</span>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  {/* Find in code */}
+                  <div className="relative flex items-center gap-2">
+                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                    <input
+                      type="text"
+                      placeholder="Find in file..."
+                      value={codeSearch}
+                      onChange={(e) => setCodeSearch(e.target.value)}
+                      className="pl-7 pr-3 py-1 bg-zinc-800/80 border border-zinc-700 rounded-lg text-xs outline-none focus:border-indigo-500 w-28 sm:w-36 text-zinc-200"
+                    />
+                    {codeSearch && (
+                      <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">
+                        {(textContent.toLowerCase().split(codeSearch.toLowerCase()).length - 1)} match(es)
+                      </span>
+                    )}
+                  </div>
+
                   {isMarkdown && (
                     <button
                       type="button"
