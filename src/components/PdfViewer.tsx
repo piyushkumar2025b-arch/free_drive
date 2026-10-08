@@ -195,7 +195,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleOpenNewTab = () => {
     if (blobUrl) {
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
   };
 
@@ -406,8 +412,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         {/* FULLSCREEN FLOATING MINIMAL HUD (Unobtrusive, floating, auto-fading, zero outlines) */}
         {isFullscreen && (
           <div
-            className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 sm:gap-3 bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
-              isControlsFaded ? 'opacity-25 hover:opacity-100' : 'opacity-100'
+            className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 sm:gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+              isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
             }`}
           >
             {/* Page Navigation */}

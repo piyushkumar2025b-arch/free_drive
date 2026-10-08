@@ -7,7 +7,6 @@ import {
   X,
   Palette,
   AlertCircle,
-  FolderTag,
 } from 'lucide-react';
 import { FileItem, TagItem } from '../types';
 import { TAG_COLORS, getTagColorDef } from '../lib/tagColors';

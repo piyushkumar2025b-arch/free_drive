@@ -10,6 +10,7 @@ import {
   Copy,
   Layers,
   Check,
+  AlertCircle,
 } from 'lucide-react';
 import { formatFileSize, FIREBASE_MAX_STORAGE_BYTES } from '../services/fileService';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -47,6 +48,7 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
   lastSynced,
 }) => {
   const [replicateStatus, setReplicateStatus] = useState<string | null>(null);
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -56,9 +58,11 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
 
   const toggleFirebase = () => {
     if (providerConfig.firebaseEnabled && !providerConfig.supabaseEnabled) {
-      alert('At least one database provider must remain enabled.');
+      setProviderWarning('At least one database provider must remain enabled.');
+      setTimeout(() => setProviderWarning(null), 3000);
       return;
     }
+    setProviderWarning(null);
     onUpdateProviderConfig({
       ...providerConfig,
       firebaseEnabled: !providerConfig.firebaseEnabled,
@@ -67,9 +71,11 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
 
   const toggleSupabase = () => {
     if (providerConfig.supabaseEnabled && !providerConfig.firebaseEnabled) {
-      alert('At least one database provider must remain enabled.');
+      setProviderWarning('At least one database provider must remain enabled.');
+      setTimeout(() => setProviderWarning(null), 3000);
       return;
     }
+    setProviderWarning(null);
     onUpdateProviderConfig({
       ...providerConfig,
       supabaseEnabled: !providerConfig.supabaseEnabled,
@@ -131,6 +137,13 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
             </button>
           </div>
         </div>
+
+        {providerWarning && (
+          <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-2">
+            <AlertCircle size={15} className="shrink-0" />
+            <span>{providerWarning}</span>
+          </div>
+        )}
 
         {/* Sync Info Notification */}
         {lastSynced && (

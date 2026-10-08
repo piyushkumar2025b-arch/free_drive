@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   Download,
@@ -76,6 +76,23 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [isModalFullscreen, setIsModalFullscreen] = useState<boolean>(false);
+  const [isControlsFaded, setIsControlsFaded] = useState<boolean>(false);
+  const fadeTimeoutRef = useRef<any>(null);
+
+  const handleMouseMove = () => {
+    if (!isModalFullscreen) return;
+    setIsControlsFaded(false);
+    if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+    fadeTimeoutRef.current = setTimeout(() => {
+      setIsControlsFaded(true);
+    }, 2500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+    };
+  }, []);
 
   // Image controls
   const [zoom, setZoom] = useState<number>(1);
@@ -464,6 +481,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="preview-modal-title"
+      onMouseMove={handleMouseMove}
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs transition-all ${
         isModalFullscreen ? 'p-0' : 'p-4 sm:p-8'
       }`}
@@ -640,7 +658,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             <button
               type="button"
               onClick={() => setIsModalFullscreen(false)}
-              className="absolute top-4 right-4 z-40 flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 text-white border border-white/20 rounded-full shadow-2xl text-xs font-medium transition backdrop-blur-md"
+              className={`absolute top-4 right-4 z-40 flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 text-white border border-white/20 rounded-full shadow-2xl text-xs font-medium transition-all duration-300 backdrop-blur-md ${
+                isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+              }`}
               title="Exit Full Screen (Esc)"
             >
               <Minimize2 size={13} />
@@ -683,7 +703,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                           : '')
                       }
                       alt={file.name}
-                      className="max-h-full max-w-full object-contain transition-transform duration-100 shadow-xl rounded-lg"
+                      className={`max-h-full max-w-full object-contain transition-transform duration-100 ${
+                        isModalFullscreen ? 'shadow-none rounded-none border-0' : 'shadow-xl rounded-lg'
+                      }`}
                       style={{
                         transform: `scale(${zoom}) rotate(${rotation}deg)`,
                       }}
@@ -704,7 +726,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               )}
 
               {/* Floating Image Control Bar */}
-              <div className="absolute bottom-6 flex items-center gap-2 bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-zinc-200 dark:border-zinc-700 px-4 py-2 rounded-full shadow-xl text-xs text-zinc-700 dark:text-zinc-300">
+              <div
+                className={`absolute bottom-6 flex items-center gap-2 bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-zinc-200 dark:border-zinc-700 px-4 py-2 rounded-full shadow-xl text-xs text-zinc-700 dark:text-zinc-300 transition-opacity duration-300 ${
+                  isModalFullscreen && isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                }`}
+              >
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.max(0.2, z - 0.25))}
@@ -741,6 +767,21 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 >
                   Reset
                 </button>
+
+                {isModalFullscreen && (
+                  <>
+                    <div className="h-3 w-px bg-zinc-300 dark:bg-zinc-600 mx-1" />
+                    <button
+                      type="button"
+                      onClick={() => setIsModalFullscreen(false)}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                      title="Exit Full Screen (Esc)"
+                    >
+                      <Minimize2 size={13} />
+                      <span>Exit (Esc)</span>
+                    </button>
+                  </>
+                )}
 
                 {ext === 'svg' && (
                   <>
@@ -829,13 +870,13 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               {/* Document Sheet: zero outlines, zero borders, pure centered reading in fullscreen */}
               <div
                 className={`flex-1 overflow-auto flex justify-center ${
-                  isModalFullscreen ? 'p-4 sm:p-14 bg-zinc-950' : 'p-6 sm:p-10 bg-zinc-100 dark:bg-zinc-950'
+                  isModalFullscreen ? 'p-2 sm:p-8 bg-zinc-950' : 'p-6 sm:p-10 bg-zinc-100 dark:bg-zinc-950'
                 }`}
               >
                 <div
                   className={`w-full max-w-4xl docx-rendered-sheet min-h-full transition-all ${
                     isModalFullscreen
-                      ? 'bg-zinc-900 border-0 shadow-none rounded-none p-6 sm:p-14 text-zinc-100'
+                      ? 'bg-transparent border-0 shadow-none ring-0 outline-none rounded-none p-4 sm:p-10 text-zinc-100'
                       : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 sm:p-14 text-zinc-900 dark:text-zinc-100'
                   }`}
                 >
@@ -854,7 +895,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
               {/* Fullscreen Floating Minimal HUD */}
               {isModalFullscreen && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white">
+                <div
+                  className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                  }`}
+                >
                   <span className="font-semibold truncate max-w-[150px]">{file.name}</span>
                   {docxStats && (
                     <span className="text-zinc-400 font-mono hidden sm:inline">
@@ -956,10 +1001,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   </div>
                 ) : slides.length > 0 ? (
                   <div
-                    className={`w-full max-w-5xl aspect-video bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 flex flex-col justify-between transition-all ${
+                    className={`w-full aspect-video bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 flex flex-col justify-between transition-all ${
                       isModalFullscreen
-                        ? 'border-0 shadow-none rounded-none p-10 sm:p-20'
-                        : 'border border-zinc-800 rounded-2xl shadow-2xl p-10'
+                        ? 'border-0 shadow-none rounded-none w-full h-full p-8 sm:p-16 max-w-none'
+                        : 'max-w-5xl border border-zinc-800 rounded-2xl shadow-2xl p-10'
                     }`}
                   >
                     <div>
@@ -1016,7 +1061,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
               {/* Fullscreen Floating Presenter HUD */}
               {isModalFullscreen && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/85 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white">
+                <div
+                  className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                  }`}
+                >
                   <button
                     type="button"
                     disabled={currentSlideIndex === 0}
@@ -1224,14 +1273,32 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </div>
           ) : isVideo && activeDataUrl ? (
             /* VIDEO PREVIEW */
-            <div className="w-full h-full flex flex-col items-center justify-center p-6">
+            <div className={`w-full h-full flex flex-col items-center justify-center relative ${isModalFullscreen ? 'p-0 bg-black' : 'p-6'}`}>
               <video
                 src={activeDataUrl}
                 controls
-                className="max-h-full max-w-full rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 bg-black"
+                className={`max-h-full max-w-full ${
+                  isModalFullscreen
+                    ? 'w-full h-full object-contain rounded-none shadow-none border-0 bg-black'
+                    : 'rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 bg-black'
+                }`}
               >
                 Your browser does not support the video tag.
               </video>
+
+              {isModalFullscreen && (
+                <button
+                  type="button"
+                  onClick={() => setIsModalFullscreen(false)}
+                  className={`absolute top-4 right-4 z-40 flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 text-white border border-white/20 rounded-full shadow-2xl text-xs font-medium transition-all duration-300 backdrop-blur-md ${
+                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                  }`}
+                  title="Exit Full Screen (Esc)"
+                >
+                  <Minimize2 size={13} />
+                  <span>Exit Full Screen (Esc)</span>
+                </button>
+              )}
             </div>
           ) : isAudio && activeDataUrl ? (
             /* AUDIO PREVIEW */
@@ -1251,23 +1318,25 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </div>
           ) : isCsv && csvData && !isEditingText ? (
             /* CSV / SPREADSHEET TABULAR PREVIEW */
-            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-900 rounded-none overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-500">
-                <div className="flex items-center gap-2">
-                  <Table size={15} className="text-emerald-500" />
-                  <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                    Table Preview ({csvData.headers.length} columns, showing {csvData.rows.length} of{' '}
-                    {csvData.totalRows} rows)
-                  </span>
+            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-900 rounded-none overflow-hidden relative">
+              {!isModalFullscreen && (
+                <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-500">
+                  <div className="flex items-center gap-2">
+                    <Table size={15} className="text-emerald-500" />
+                    <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                      Table Preview ({csvData.headers.length} columns, showing {csvData.rows.length} of{' '}
+                      {csvData.totalRows} rows)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingText(true)}
+                    className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
+                  >
+                    Edit Raw Data
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingText(true)}
-                  className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
-                >
-                  Edit Raw Data
-                </button>
-              </div>
+              )}
               <div className="flex-1 overflow-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 sticky top-0 border-b border-zinc-200 dark:border-zinc-700">
@@ -1307,32 +1376,73 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   </tbody>
                 </table>
               </div>
-            </div>
-          ) : isMarkdown && markdownViewMode === 'preview' && !isEditingText ? (
-            /* MARKDOWN RENDERED PREVIEW */
-            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-900 rounded-none overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
-                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                  Rendered Markdown Document
-                </span>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setMarkdownViewMode('raw')}
-                    className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
-                  >
-                    View Raw Markdown
-                  </button>
+
+              {/* Fullscreen Floating CSV HUD */}
+              {isModalFullscreen && (
+                <div
+                  className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                  }`}
+                >
+                  <span className="font-semibold">{file.name}</span>
+                  <span className="text-zinc-400 font-mono">
+                    {csvData.headers.length} cols · {csvData.totalRows} rows
+                  </span>
+                  <div className="h-3 w-px bg-white/20" />
                   <button
                     type="button"
                     onClick={() => setIsEditingText(true)}
-                    className="text-zinc-700 dark:text-zinc-300 hover:underline font-medium"
+                    className="hover:text-blue-400 transition"
                   >
                     Edit
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="flex items-center gap-1 hover:text-blue-400 transition"
+                  >
+                    <Download size={14} />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalFullscreen(false)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                    title="Exit Full Screen (Esc)"
+                  >
+                    <Minimize2 size={13} />
+                    <span>Exit (Esc)</span>
+                  </button>
                 </div>
-              </div>
-              <div className="flex-1 overflow-auto p-8 text-zinc-800 dark:text-zinc-200 prose dark:prose-invert max-w-3xl mx-auto text-sm leading-relaxed space-y-4 font-sans">
+              )}
+            </div>
+          ) : isMarkdown && markdownViewMode === 'preview' && !isEditingText ? (
+            /* MARKDOWN RENDERED PREVIEW */
+            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-900 rounded-none overflow-hidden relative">
+              {!isModalFullscreen && (
+                <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                    Rendered Markdown Document
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setMarkdownViewMode('raw')}
+                      className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
+                    >
+                      View Raw Markdown
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingText(true)}
+                      className="text-zinc-700 dark:text-zinc-300 hover:underline font-medium"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className={`flex-1 overflow-auto ${isModalFullscreen ? 'p-6 sm:p-16 bg-zinc-950 text-zinc-100' : 'p-8 text-zinc-800 dark:text-zinc-200'} prose dark:prose-invert max-w-3xl mx-auto text-sm leading-relaxed space-y-4 font-sans`}>
                 {textContent.split('\n').map((line, idx) => {
                   if (line.startsWith('# ')) {
                     return <h1 key={idx} className="text-2xl font-bold border-b border-zinc-200 dark:border-zinc-800 pb-2">{line.replace('# ', '')}</h1>;
@@ -1363,59 +1473,104 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   return <p key={idx}>{line}</p>;
                 })}
               </div>
+
+              {/* Fullscreen Floating Markdown HUD */}
+              {isModalFullscreen && (
+                <div
+                  className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                  }`}
+                >
+                  <span className="font-semibold">{file.name}</span>
+                  <div className="h-3 w-px bg-white/20" />
+                  <button
+                    type="button"
+                    onClick={() => setMarkdownViewMode('raw')}
+                    className="hover:text-blue-400 transition"
+                  >
+                    Raw Markdown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingText(true)}
+                    className="hover:text-blue-400 transition"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="flex items-center gap-1 hover:text-blue-400 transition"
+                  >
+                    <Download size={14} />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalFullscreen(false)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                    title="Exit Full Screen (Esc)"
+                  >
+                    <Minimize2 size={13} />
+                    <span>Exit (Esc)</span>
+                  </button>
+                </div>
+              )}
             </div>
           ) : isCodeOrText ? (
             /* CODE / TEXT FILE PREVIEW WITH PRISM SYNTAX HIGHLIGHTING */
-            <div className="w-full h-full flex flex-col bg-zinc-950 text-zinc-200">
-              <div className="flex items-center justify-between px-6 py-3 bg-zinc-900 border-b border-zinc-800 text-xs text-zinc-400 select-none">
-                <div className="flex items-center gap-3">
-                  <Code size={15} className="text-indigo-400" />
-                  <span className="font-mono text-zinc-200">{file.name}</span>
-                  <span>·</span>
-                  <span className="tabular-nums font-mono">{textContent.split('\n').length} lines</span>
-                  <span>·</span>
-                  <span className="tabular-nums font-mono">{textContent.length.toLocaleString()} chars</span>
-                </div>
-
-                <div className="flex items-center gap-3 sm:gap-4">
-                  {/* Find in code */}
-                  <div className="relative flex items-center gap-2">
-                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                    <input
-                      type="text"
-                      placeholder="Find in file..."
-                      value={codeSearch}
-                      onChange={(e) => setCodeSearch(e.target.value)}
-                      className="pl-7 pr-3 py-1 bg-zinc-800/80 border border-zinc-700 rounded-lg text-xs outline-none focus:border-indigo-500 w-28 sm:w-36 text-zinc-200"
-                    />
-                    {codeSearch && (
-                      <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">
-                        {(textContent.toLowerCase().split(codeSearch.toLowerCase()).length - 1)} match(es)
-                      </span>
-                    )}
+            <div className="w-full h-full flex flex-col bg-zinc-950 text-zinc-200 relative">
+              {!isModalFullscreen && (
+                <div className="flex items-center justify-between px-6 py-3 bg-zinc-900 border-b border-zinc-800 text-xs text-zinc-400 select-none">
+                  <div className="flex items-center gap-3">
+                    <Code size={15} className="text-indigo-400" />
+                    <span className="font-mono text-zinc-200">{file.name}</span>
+                    <span>·</span>
+                    <span className="tabular-nums font-mono">{textContent.split('\n').length} lines</span>
+                    <span>·</span>
+                    <span className="tabular-nums font-mono">{textContent.length.toLocaleString()} chars</span>
                   </div>
 
-                  {isMarkdown && (
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    {/* Find in code */}
+                    <div className="relative flex items-center gap-2">
+                      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="Find in file..."
+                        value={codeSearch}
+                        onChange={(e) => setCodeSearch(e.target.value)}
+                        className="pl-7 pr-3 py-1 bg-zinc-800/80 border border-zinc-700 rounded-lg text-xs outline-none focus:border-indigo-500 w-28 sm:w-36 text-zinc-200"
+                      />
+                      {codeSearch && (
+                        <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">
+                          {(textContent.toLowerCase().split(codeSearch.toLowerCase()).length - 1)} match(es)
+                        </span>
+                      )}
+                    </div>
+
+                    {isMarkdown && (
+                      <button
+                        type="button"
+                        onClick={() => setMarkdownViewMode('preview')}
+                        className="hover:text-zinc-200 transition font-medium"
+                      >
+                        Formatted Preview
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setMarkdownViewMode('preview')}
+                      onClick={() => setWrapLines(!wrapLines)}
                       className="hover:text-zinc-200 transition font-medium"
                     >
-                      Formatted Preview
+                      {wrapLines ? 'No Wrap' : 'Wrap Lines'}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setWrapLines(!wrapLines)}
-                    className="hover:text-zinc-200 transition font-medium"
-                  >
-                    {wrapLines ? 'No Wrap' : 'Wrap Lines'}
-                  </button>
-                  {isEditingText && (
-                    <span className="text-amber-400 text-xs font-mono font-medium">Editing</span>
-                  )}
+                    {isEditingText && (
+                      <span className="text-amber-400 text-xs font-mono font-medium">Editing</span>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex-1 flex overflow-hidden font-mono text-xs leading-6">
                 {/* Line Numbers Gutter */}
@@ -1447,6 +1602,53 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   />
                 )}
               </div>
+
+              {/* Fullscreen Floating Code HUD */}
+              {isModalFullscreen && (
+                <div
+                  className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                  }`}
+                >
+                  <span className="font-mono text-indigo-400 font-semibold">{file.name}</span>
+                  <span className="text-zinc-400 font-mono">
+                    {textContent.split('\n').length} lines
+                  </span>
+                  <div className="h-3 w-px bg-white/20" />
+                  <button
+                    type="button"
+                    onClick={() => setWrapLines(!wrapLines)}
+                    className="hover:text-blue-400 transition"
+                  >
+                    {wrapLines ? 'No Wrap' : 'Wrap'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyText}
+                    className="flex items-center gap-1 hover:text-blue-400 transition"
+                  >
+                    {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="flex items-center gap-1 hover:text-blue-400 transition"
+                  >
+                    <Download size={14} />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalFullscreen(false)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                    title="Exit Full Screen (Esc)"
+                  >
+                    <Minimize2 size={13} />
+                    <span>Exit (Esc)</span>
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             /* GENERIC FILE INFO CARD */
