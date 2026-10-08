@@ -1,1 +1,62 @@
 @import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+.dark,
+:root.dark {
+  color-scheme: dark;
+}
+
+/* Universal modern sleek scrollbars - no blinding white tracks or clunky buttons */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.35) transparent;
+}
+
+.dark *,
+:root.dark * {
+  scrollbar-color: rgba(113, 113, 122, 0.4) transparent;
+}
+
+/* WebKit-based browsers (Chrome, Edge, Safari, Opera) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb,
+:root.dark ::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+:root.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.65);
+}
+
+/* Eliminate ugly native arrow buttons on Windows and Linux */
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent !important;
+}

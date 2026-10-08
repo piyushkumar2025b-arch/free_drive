@@ -73,27 +73,61 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setZoom(1);
     setRotation(0);
 
-    if (!file.dataUrl && (file.isChunked || (!file.textContent && !file.isFolder))) {
-      setIsLoadingData(true);
-      loadFullFileDataUrl(file)
-        .then((url) => {
+    if (file.dataUrl) {
+      setActiveDataUrl(file.dataUrl);
+      setIsLoadingData(false);
+      return;
+    }
+
+    if (file.isFolder) {
+      setActiveDataUrl(null);
+      setIsLoadingData(false);
+      return;
+    }
+
+    setIsLoadingData(true);
+    loadFullFileDataUrl(file)
+      .then((url) => {
+        if (url) {
           setActiveDataUrl(url);
-          if (!file.textContent && url && url.startsWith('data:text/')) {
-            try {
-              const base64Part = url.split(',')[1];
-              const decoded = atob(base64Part);
-              setTextContent(decoded);
-            } catch (e) {
-              console.warn('Could not decode data url to text', e);
+          // If textContent was empty, decode it from data URL
+          if (!file.textContent) {
+            const commaIdx = url.indexOf(',');
+            if (commaIdx !== -1) {
+              const mimePart = url.substring(0, commaIdx);
+              const payload = url.substring(commaIdx + 1);
+              if (
+                mimePart.includes('text') ||
+                mimePart.includes('json') ||
+                mimePart.includes('javascript') ||
+                mimePart.includes('xml') ||
+                mimePart.includes('csv') ||
+                mimePart.includes('svg')
+              ) {
+                try {
+                  if (mimePart.includes(';base64')) {
+                    setTextContent(decodeURIComponent(escape(atob(payload))));
+                  } else {
+                    setTextContent(decodeURIComponent(payload));
+                  }
+                } catch {
+                  try {
+                    setTextContent(atob(payload));
+                  } catch {
+                    // ignore
+                  }
+                }
+              }
             }
           }
-        })
-        .finally(() => {
-          setIsLoadingData(false);
-        });
-    } else {
-      setActiveDataUrl(file.dataUrl || null);
-    }
+        }
+      })
+      .catch((e) => {
+        console.warn('Could not load file data for preview', e);
+      })
+      .finally(() => {
+        setIsLoadingData(false);
+      });
   }, [file]);
 
   // Keyboard navigation across sibling files
@@ -193,25 +227,39 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     if (!isCsv || !textContent) return null;
     const delimiter = ext === 'tsv' ? '\t' : ',';
     const lines = textContent
-      .split('\n')
+      .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
     if (lines.length === 0) return null;
 
     const rows = lines.map((line) => {
-      const regex = new RegExp(`(?:^|${delimiter})(?:"([^"]*(?:""[^"]*)*)"|([^"${delimiter}]*))`, 'g');
       const cells: string[] = [];
-      let match;
-      while ((match = regex.exec(line)) !== null) {
-        cells.push((match[1] ? match[1].replace(/""/g, '"') : match[2]) || '');
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (c === delimiter && !inQuotes) {
+          cells.push(current.trim().replace(/^"|"$/g, ''));
+          current = '';
+        } else {
+          current += c;
+        }
       }
+      cells.push(current.trim().replace(/^"|"$/g, ''));
       return cells;
     });
 
     return {
       headers: rows[0] || [],
       rows: rows.slice(1, 150),
-      totalRows: rows.length - 1,
+      totalRows: Math.max(0, rows.length - 1),
     };
   }, [isCsv, textContent, ext]);
 
@@ -423,7 +471,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
               <p className="text-sm">Assembling and loading file data...</p>
             </div>
-          ) : isImage && (activeDataUrl || file.textContent) ? (
+          ) : isImage ? (
             /* IMAGE PREVIEW */
             <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
               <div
@@ -434,19 +482,32 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   backgroundSize: '20px 20px',
                 }}
               >
-                <img
-                  src={
-                    activeDataUrl ||
-                    (ext === 'svg'
-                      ? `data:image/svg+xml;utf8,${encodeURIComponent(file.textContent || '')}`
-                      : '')
-                  }
-                  alt={file.name}
-                  className="max-h-full max-w-full object-contain transition-transform duration-100 shadow-xl rounded-lg"
-                  style={{
-                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                  }}
-                />
+                {activeDataUrl || (ext === 'svg' && (textContent || file.textContent)) ? (
+                  <img
+                    src={
+                      activeDataUrl ||
+                      (ext === 'svg'
+                        ? `data:image/svg+xml;utf8,${encodeURIComponent(textContent || file.textContent || '')}`
+                        : '')
+                    }
+                    alt={file.name}
+                    className="max-h-full max-w-full object-contain transition-transform duration-100 shadow-xl rounded-lg"
+                    style={{
+                      transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                    }}
+                  />
+                ) : (
+                  <div className="text-center text-zinc-400 p-8 flex flex-col items-center gap-3">
+                    <p className="text-sm font-medium">Image preview not available</p>
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold shadow-xs"
+                    >
+                      Download Image
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Floating Image Control Bar */}

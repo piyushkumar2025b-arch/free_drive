@@ -23,7 +23,7 @@ export function isSupabaseConfigured(): boolean {
 // Local persistent IndexedDB / localStorage fallback for Supabase provider when env vars not yet deployed
 const LOCAL_SUPABASE_KEY = 'cloudfile_supabase_storage_v1';
 
-function getLocalSupabaseFiles(): FileItem[] {
+export function getLocalSupabaseFiles(): FileItem[] {
   try {
     const raw = localStorage.getItem(LOCAL_SUPABASE_KEY);
     if (!raw) return [];

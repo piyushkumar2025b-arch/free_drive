@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -20,6 +21,7 @@ import {
   moveInSupabase,
   updateContentInSupabase,
   isSupabaseConfigured,
+  getLocalSupabaseFiles,
 } from '../lib/supabase';
 import { FileItem, ProviderConfig } from '../types';
 
@@ -680,29 +682,58 @@ export async function deleteFileItem(
 export async function loadFullFileDataUrl(file: FileItem): Promise<string | null> {
   if (file.dataUrl) return file.dataUrl;
 
+  // Supabase fallback check
+  if (file.provider === 'supabase') {
+    try {
+      const localFiles = getLocalSupabaseFiles();
+      const match = localFiles.find((f) => f.id === file.id);
+      if (match?.dataUrl) return match.dataUrl;
+      if (match?.textContent) {
+        return `data:${match.mimeType || 'text/plain'};charset=utf-8,` + encodeURIComponent(match.textContent);
+      }
+    } catch (e) {
+      console.warn('Error reading local Supabase file:', e);
+    }
+  }
+
+  // Chunked Firebase file assembly
   if (file.isChunked && file.id && file.provider !== 'supabase') {
     try {
       const chunksCollection = collection(db, `files/${file.id}/chunks`);
       const chunksSnap = await getDocs(chunksCollection);
 
-      if (chunksSnap.empty) {
-        return null;
-      }
-
-      const chunksList: { chunkIndex: number; data: string }[] = [];
-      chunksSnap.forEach((d) => {
-        const data = d.data();
-        chunksList.push({
-          chunkIndex: Number(data.chunkIndex ?? 0),
-          data: data.data || '',
+      if (!chunksSnap.empty) {
+        const chunksList: { chunkIndex: number; data: string }[] = [];
+        chunksSnap.forEach((d) => {
+          const data = d.data();
+          chunksList.push({
+            chunkIndex: Number(data.chunkIndex ?? 0),
+            data: data.data || '',
+          });
         });
-      });
 
-      chunksList.sort((a, b) => a.chunkIndex - b.chunkIndex);
-      return chunksList.map((c) => c.data).join('');
+        chunksList.sort((a, b) => a.chunkIndex - b.chunkIndex);
+        const assembled = chunksList.map((c) => c.data).join('');
+        if (assembled) return assembled;
+      }
     } catch (error) {
       console.warn('Could not load chunks for file:', error);
-      return null;
+    }
+  }
+
+  // Direct Firestore doc fetch if dataUrl wasn't in memory
+  if (file.id && file.provider !== 'supabase') {
+    try {
+      const docSnap = await getDoc(doc(db, 'files', file.id));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.dataUrl) return data.dataUrl;
+        if (data.textContent) {
+          return `data:${data.mimeType || 'text/plain'};charset=utf-8,` + encodeURIComponent(data.textContent);
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching file document:', e);
     }
   }
 

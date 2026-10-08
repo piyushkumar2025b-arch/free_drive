@@ -167,7 +167,13 @@ export const FileList: React.FC<FileListProps> = ({
                 }`}
               >
                 {/* Spacious Thumbnail Preview Container */}
-                <div className="relative w-full h-36 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 overflow-hidden flex items-center justify-center border border-zinc-100 dark:border-zinc-800/80 mb-3.5">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenFile(file);
+                  }}
+                  className="relative w-full h-36 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 overflow-hidden flex items-center justify-center border border-zinc-100 dark:border-zinc-800/80 mb-3.5 cursor-pointer hover:opacity-95"
+                >
                   {isImg && (file.dataUrl || file.textContent) ? (
                     <img
                       src={
@@ -225,7 +231,11 @@ export const FileList: React.FC<FileListProps> = ({
                     <div className="flex items-center gap-1.5 min-w-0">
                       <h4
                         title={file.name}
-                        className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate leading-snug"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenFile(file);
+                        }}
+                        className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate leading-snug hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                       >
                         {file.name}
                       </h4>
@@ -368,7 +378,14 @@ export const FileList: React.FC<FileListProps> = ({
                     }`}
                   >
                     <td className="py-3.5 px-6">
-                      <div className="flex items-center gap-3.5 min-w-0">
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenFile(file);
+                        }}
+                        className="flex items-center gap-3.5 min-w-0 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+                        title={file.isFolder ? 'Open folder' : 'Preview file'}
+                      >
                         <FileIcon
                           isFolder={file.isFolder}
                           mimeType={file.mimeType}

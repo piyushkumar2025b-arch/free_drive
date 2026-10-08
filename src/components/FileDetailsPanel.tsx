@@ -76,7 +76,13 @@ export const FileDetailsPanel: React.FC<FileDetailsPanelProps> = ({
 
         {/* Thumbnail Preview Area */}
         <div className="p-6 flex flex-col items-center justify-center border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/30">
-          <div className="w-36 h-36 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/60 shadow-xs flex items-center justify-center overflow-hidden mb-3">
+          <div
+            onClick={() => !file.isFolder && onPreview(file)}
+            className={`w-36 h-36 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700/60 shadow-xs flex items-center justify-center overflow-hidden mb-3 ${
+              !file.isFolder ? 'cursor-pointer hover:border-blue-500 hover:shadow-md transition' : ''
+            }`}
+            title={!file.isFolder ? 'Click to open preview' : undefined}
+          >
             {isImg && (file.dataUrl || file.textContent) ? (
               <img
                 src={
