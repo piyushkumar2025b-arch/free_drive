@@ -59,7 +59,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     dataUrlToArrayBuffer(dataUrl)
       .then((buffer) => {
-        if (isCancelled || buffer.byteLength === 0) return;
+        if (isCancelled) return;
+        if (buffer.byteLength === 0) {
+          setIsLoading(false);
+          setErrorMessage('Empty or unreadable PDF data.');
+          return;
+        }
         const blob = new Blob([buffer], { type: 'application/pdf' });
         url = URL.createObjectURL(blob);
         setBlobUrl(url);
@@ -380,15 +385,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           </div>
         ) : viewMode === 'canvas' ? (
           <div
-            className={`relative flex flex-col items-center bg-white my-auto transition-all ${
+            className={`relative inline-flex flex-col items-center bg-white my-4 sm:my-8 transition-all shrink-0 ${
               isFullscreen
                 ? 'shadow-2xl rounded-sm border border-zinc-700/50'
                 : 'shadow-2xl rounded-sm border border-zinc-300 dark:border-zinc-800'
             }`}
-            style={{
-              width: pageDimensions ? `${Math.floor(pageDimensions.width)}px` : 'auto',
-              minHeight: pageDimensions ? `${Math.floor(pageDimensions.height)}px` : '400px',
-            }}
           >
             {isRenderingPage && (
               <div className="absolute inset-0 bg-white/60 backdrop-blur-2xs flex items-center justify-center z-10 transition-opacity">

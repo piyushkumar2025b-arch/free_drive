@@ -41,6 +41,9 @@ import {
   inspectZipArchive,
   ZipEntryItem,
   readZipEntryContent,
+  parseXlsxSpreadsheet,
+  XlsxSheet,
+  getColumnLetter,
 } from '../services/documentParserService';
 import {
   highlightCode,
@@ -63,31 +66,29 @@ interface FilePreviewModalProps {
 function extractTextFromDataUrl(url: string): string {
   const commaIdx = url.indexOf(',');
   if (commaIdx === -1) return '';
-  const mimePart = url.substring(0, commaIdx);
+  const meta = url.substring(0, commaIdx);
   const payload = url.substring(commaIdx + 1);
-  if (
-    mimePart.includes('text') ||
-    mimePart.includes('json') ||
-    mimePart.includes('javascript') ||
-    mimePart.includes('xml') ||
-    mimePart.includes('csv') ||
-    mimePart.includes('svg')
-  ) {
+
+  try {
+    if (meta.includes(';base64')) {
+      const cleanB64 = payload.replace(/\s+/g, '');
+      const binaryString = atob(cleanB64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    } else {
+      return decodeURIComponent(payload);
+    }
+  } catch {
     try {
-      if (mimePart.includes(';base64')) {
-        return decodeURIComponent(escape(atob(payload)));
-      } else {
-        return decodeURIComponent(payload);
-      }
+      return atob(payload);
     } catch {
-      try {
-        return atob(payload);
-      } catch {
-        return '';
-      }
+      return '';
     }
   }
-  return '';
 }
 
 export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
@@ -147,6 +148,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
   const [isLoadingPptx, setIsLoadingPptx] = useState<boolean>(false);
 
+  // XLSX Spreadsheet State
+  const [xlsxSheets, setXlsxSheets] = useState<XlsxSheet[]>([]);
+  const [activeXlsxSheetIndex, setActiveXlsxSheetIndex] = useState<number>(0);
+  const [isLoadingXlsx, setIsLoadingXlsx] = useState<boolean>(false);
+  const [sheetSearch, setSheetSearch] = useState<string>('');
+
   // ZIP State
   const [zipEntries, setZipEntries] = useState<ZipEntryItem[]>([]);
   const [isLoadingZip, setIsLoadingZip] = useState<boolean>(false);
@@ -181,6 +188,13 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const isPdf = ext === 'pdf' || mime.includes('pdf');
 
   const isCsv = ['csv', 'tsv'].includes(ext) || mime.includes('csv');
+
+  const isXlsx =
+    ['xlsx', 'xls', 'ods'].includes(ext) ||
+    mime.includes('spreadsheetml') ||
+    mime.includes('ms-excel');
+
+  const isSpreadsheet = isCsv || isXlsx;
 
   const isMarkdown = ['md', 'markdown'].includes(ext);
 
@@ -221,6 +235,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setSlides([]);
     setCurrentSlideIndex(0);
     setZipEntries([]);
+    setXlsxSheets([]);
+    setActiveXlsxSheetIndex(0);
+    setSheetSearch('');
 
     if (file.dataUrl) {
       setActiveDataUrl(file.dataUrl);
@@ -260,6 +277,19 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   useEffect(() => {
     if (!activeDataUrl) return;
 
+    if (isXlsx) {
+      setIsLoadingXlsx(true);
+      parseXlsxSpreadsheet(activeDataUrl)
+        .then((sheets) => {
+          setXlsxSheets(sheets);
+          setActiveXlsxSheetIndex(0);
+        })
+        .catch((e) => {
+          console.warn('XLSX parser failed', e);
+        })
+        .finally(() => setIsLoadingXlsx(false));
+    }
+
     if (isDocx) {
       setIsLoadingDocx(true);
       parseDocxToHtml(activeDataUrl)
@@ -295,7 +325,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         })
         .finally(() => setIsLoadingZip(false));
     }
-  }, [activeDataUrl, isDocx, isPptx, isArchive]);
+  }, [activeDataUrl, isDocx, isPptx, isArchive, isXlsx]);
 
   // Keyboard navigation across sibling files
   const currentIndex = siblingFiles.findIndex((f) => f.id === file.id);
@@ -419,7 +449,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   };
 
-  // Safe CSV parser
+  // Safe CSV / TSV parser with uniform column count
   const csvData = useMemo(() => {
     if (!isCsv || !textContent) return null;
     const delimiter = ext === 'tsv' ? '\t' : ',';
@@ -429,7 +459,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       .filter((l) => l.length > 0);
     if (lines.length === 0) return null;
 
-    const rows = lines.map((line) => {
+    const rawRows = lines.map((line) => {
       const cells: string[] = [];
       let current = '';
       let inQuotes = false;
@@ -453,12 +483,56 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       return cells;
     });
 
+    const maxCols = Math.max(...rawRows.map((r) => r.length), 1);
+    const uniformRows = rawRows.map((r) => {
+      const padded = [...r];
+      while (padded.length < maxCols) {
+        padded.push('');
+      }
+      return padded;
+    });
+
     return {
-      headers: rows[0] || [],
-      rows: rows.slice(1, 150),
-      totalRows: Math.max(0, rows.length - 1),
+      headers: uniformRows[0] || [],
+      rows: uniformRows.slice(1, 200),
+      totalRows: Math.max(0, uniformRows.length - 1),
     };
   }, [isCsv, textContent, ext]);
+
+  // Unified Spreadsheet data source (XLSX sheets or CSV/TSV table)
+  const activeSpreadsheetData = useMemo(() => {
+    if (isXlsx) {
+      if (xlsxSheets.length === 0) return null;
+      const sheet = xlsxSheets[activeXlsxSheetIndex] || xlsxSheets[0];
+      return {
+        sheetName: sheet.name,
+        headers: sheet.headers,
+        rows: sheet.rows,
+        totalRows: sheet.totalRows,
+        sheetCount: xlsxSheets.length,
+      };
+    }
+    if (isCsv && csvData) {
+      return {
+        sheetName: file.name,
+        headers: csvData.headers,
+        rows: csvData.rows,
+        totalRows: csvData.totalRows,
+        sheetCount: 1,
+      };
+    }
+    return null;
+  }, [isXlsx, xlsxSheets, activeXlsxSheetIndex, isCsv, csvData, file.name]);
+
+  // Filtered rows matching search query in spreadsheet
+  const filteredSpreadsheetRows = useMemo(() => {
+    if (!activeSpreadsheetData) return [];
+    if (!sheetSearch.trim()) return activeSpreadsheetData.rows;
+    const q = sheetSearch.toLowerCase();
+    return activeSpreadsheetData.rows.filter((row) =>
+      row.some((cell) => cell.toLowerCase().includes(q))
+    );
+  }, [activeSpreadsheetData, sheetSearch]);
 
   // Syntax highlighted HTML for code files
   const highlightedCodeHtml = useMemo(() => {
@@ -637,7 +711,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
         {/* Modal Content Area */}
         <div
-          className={`flex-1 overflow-auto flex flex-col items-center justify-center relative ${
+          className={`flex-1 overflow-auto flex flex-col items-center justify-start relative min-h-0 min-w-0 ${
             isModalFullscreen ? 'bg-zinc-950 p-0 w-full h-full' : 'bg-zinc-100 dark:bg-zinc-950'
           }`}
         >
@@ -893,10 +967,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
               {/* Document Paper Sheet: Centered, realistic paper sheet maintaining letters on page */}
               <div
-                className={`flex-1 overflow-auto flex justify-center items-start bg-zinc-100 dark:bg-zinc-950 p-4 sm:p-10`}
+                className={`flex-1 overflow-auto flex flex-col items-center justify-start bg-zinc-100 dark:bg-zinc-950 p-4 sm:p-10 min-h-0 min-w-0 w-full`}
               >
                 <div
-                  className={`w-full max-w-4xl docx-rendered-sheet bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-800 shadow-xl rounded-xl p-8 sm:p-16 text-zinc-900 dark:text-zinc-100 my-4 min-h-[600px]`}
+                  className={`w-full max-w-4xl docx-rendered-sheet bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-800 shadow-xl rounded-xl p-8 sm:p-16 text-zinc-900 dark:text-zinc-100 my-4 min-h-[600px] shrink-0`}
                 >
                   {isLoadingDocx ? (
                     <div className="flex flex-col items-center justify-center p-16 text-zinc-400 gap-3">
@@ -1332,107 +1406,195 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </div>
               <audio src={activeDataUrl} controls className="w-full" />
             </div>
-          ) : isCsv && csvData && !isEditingText ? (
-            /* CSV / SPREADSHEET TABULAR PREVIEW */
-            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-900 rounded-none overflow-hidden relative">
-              {!isModalFullscreen && (
-                <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-500">
-                  <div className="flex items-center gap-2">
-                    <Table size={15} className="text-emerald-500" />
-                    <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                      Table Preview ({csvData.headers.length} columns, showing {csvData.rows.length} of{' '}
-                      {csvData.totalRows} rows)
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingText(true)}
-                    className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
-                  >
-                    Edit Raw Data
-                  </button>
+          ) : isSpreadsheet && (activeSpreadsheetData || isLoadingXlsx) && !isEditingText ? (
+            /* SPREADSHEET (EXCEL XLSX & CSV / TSV) TABULAR PREVIEW */
+            <div className="w-full h-full flex flex-col bg-white dark:bg-zinc-900 rounded-none overflow-hidden relative min-h-0 min-w-0">
+              {isLoadingXlsx ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                  <p className="text-sm font-medium">Extracting Excel workbook sheets...</p>
                 </div>
-              )}
-              <div className="flex-1 overflow-auto bg-white dark:bg-zinc-900">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="sticky top-0 z-20 border-b border-zinc-200 dark:border-zinc-700 shadow-2xs">
-                    <tr>
-                      <th className="px-4 py-2.5 border-r border-zinc-200 dark:border-zinc-700 font-mono text-zinc-400 w-14 text-center sticky left-0 z-30 bg-zinc-100 dark:bg-zinc-800">
-                        #
-                      </th>
-                      {csvData.headers.map((h, i) => (
-                        <th
-                          key={i}
-                          className="px-4 py-2.5 border-r border-zinc-200 dark:border-zinc-700 font-semibold whitespace-nowrap bg-zinc-100 dark:bg-zinc-800 min-w-[120px]"
-                        >
-                          <div className="flex flex-col">
-                            <span className="text-[10px] text-zinc-400 font-mono uppercase tracking-wider font-normal">
-                              Col {String.fromCharCode(65 + (i % 26))}
-                            </span>
-                            <span className="text-zinc-800 dark:text-zinc-200">{h || `Column ${i + 1}`}</span>
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-mono">
-                    {csvData.rows.map((row, rIdx) => (
-                      <tr
-                        key={rIdx}
-                        className="hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors"
-                      >
-                        <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-800 text-zinc-400 text-center select-none sticky left-0 z-10 bg-zinc-50 dark:bg-zinc-900 font-sans tabular-nums">
-                          {rIdx + 1}
-                        </td>
-                        {row.map((cell, cIdx) => (
-                          <td
-                            key={cIdx}
-                            className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 whitespace-nowrap"
-                          >
-                            {cell}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              ) : activeSpreadsheetData ? (
+                <>
+                  {/* Top toolbar */}
+                  {!isModalFullscreen && (
+                    <div className="flex flex-wrap items-center justify-between px-6 py-2.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-500 gap-3 shrink-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Table size={16} className="text-emerald-500 shrink-0" />
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                            {activeSpreadsheetData.sheetName}
+                          </span>
+                        </div>
+                        <span className="text-zinc-400 hidden sm:inline">·</span>
+                        <span className="text-zinc-500 dark:text-zinc-400 font-mono text-xs hidden sm:inline">
+                          {activeSpreadsheetData.headers.length} columns · {activeSpreadsheetData.totalRows} rows
+                        </span>
+                      </div>
 
-              {/* Fullscreen Floating CSV HUD */}
-              {isModalFullscreen && (
-                <div
-                  className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
-                    isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
-                  }`}
-                >
-                  <span className="font-semibold">{file.name}</span>
-                  <span className="text-zinc-400 font-mono">
-                    {csvData.headers.length} cols · {csvData.totalRows} rows
-                  </span>
-                  <div className="h-3 w-px bg-white/20" />
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingText(true)}
-                    className="hover:text-blue-400 transition"
-                  >
-                    Edit
-                  </button>
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        {/* Search inside sheet */}
+                        <div className="relative flex items-center">
+                          <Search size={12} className="absolute left-2.5 text-zinc-400" />
+                          <input
+                            type="text"
+                            placeholder="Filter sheet..."
+                            value={sheetSearch}
+                            onChange={(e) => setSheetSearch(e.target.value)}
+                            className="pl-7 pr-2.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs outline-none focus:border-emerald-500 w-28 sm:w-36 text-zinc-800 dark:text-zinc-200"
+                          />
+                        </div>
+
+                        {isCsv && (
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingText(true)}
+                            className="px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition"
+                          >
+                            Edit Raw Data
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setIsModalFullscreen(true)}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition"
+                          title="Distraction-Free Pure Fullscreen"
+                        >
+                          <Maximize2 size={12} />
+                          <span className="hidden sm:inline">Pure View</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Multiple Sheet Tabs bar for Excel files */}
+                  {xlsxSheets.length > 1 && (
+                    <div className="flex items-center gap-1.5 px-6 py-2 bg-zinc-100/90 dark:bg-zinc-800/80 border-b border-zinc-200 dark:border-zinc-700 overflow-x-auto text-xs shrink-0 select-none">
+                      <span className="text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mr-1">
+                        Sheets:
+                      </span>
+                      {xlsxSheets.map((sh, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setActiveXlsxSheetIndex(idx)}
+                          className={`px-3 py-1 rounded-md font-medium text-xs transition shrink-0 ${
+                            activeXlsxSheetIndex === idx
+                              ? 'bg-emerald-600 text-white shadow-xs font-semibold'
+                              : 'bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200/80 dark:border-zinc-700/80'
+                          }`}
+                        >
+                          {sh.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Pixel-Perfect Locked Spreadsheet Grid: border-separate + border-spacing-0 prevents any cell/letter detachment */}
+                  <div className="flex-1 overflow-auto bg-white dark:bg-zinc-900 min-h-0 min-w-0">
+                    <table className="min-w-full text-left text-xs border-separate border-spacing-0 select-text">
+                      <thead className="sticky top-0 z-20 shadow-2xs">
+                        <tr>
+                          <th className="px-3 py-2 border-r border-b border-zinc-300 dark:border-zinc-700 font-mono text-zinc-500 w-12 min-w-[48px] max-w-[48px] text-center sticky left-0 z-30 bg-zinc-200 dark:bg-zinc-800 select-none font-semibold">
+                            #
+                          </th>
+                          {activeSpreadsheetData.headers.map((h, i) => (
+                            <th
+                              key={i}
+                              className="px-4 py-2 border-r border-b border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 font-semibold whitespace-nowrap min-w-[130px]"
+                            >
+                              <div className="flex flex-col">
+                                <span className="text-[10px] text-zinc-400 font-mono uppercase tracking-wider font-normal">
+                                  Col {getColumnLetter(i)}
+                                </span>
+                                <span className="text-zinc-800 dark:text-zinc-200 font-medium">
+                                  {h || `Column ${getColumnLetter(i)}`}
+                                </span>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y-0">
+                        {filteredSpreadsheetRows.map((row, rIdx) => (
+                          <tr
+                            key={rIdx}
+                            className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition-colors"
+                          >
+                            <td className="px-3 py-2 border-r border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 text-center select-none sticky left-0 z-10 bg-zinc-50 dark:bg-zinc-900 font-sans tabular-nums w-12 min-w-[48px] max-w-[48px]">
+                              {rIdx + 1}
+                            </td>
+                            {row.map((cell, cIdx) => (
+                              <td
+                                key={cIdx}
+                                className="px-4 py-2 border-r border-b border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 whitespace-nowrap min-w-[130px] font-sans text-xs"
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Fullscreen Floating Spreadsheet HUD */}
+                  {isModalFullscreen && (
+                    <div
+                      className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-zinc-900/90 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-2xl text-xs text-white transition-opacity duration-300 ${
+                        isControlsFaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                      }`}
+                    >
+                      <span className="font-semibold truncate max-w-[150px]">
+                        {activeSpreadsheetData.sheetName}
+                      </span>
+                      <span className="text-zinc-400 font-mono">
+                        {activeSpreadsheetData.headers.length} cols · {activeSpreadsheetData.totalRows} rows
+                      </span>
+                      <div className="h-3 w-px bg-white/20" />
+                      {isCsv && (
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingText(true)}
+                          className="hover:text-emerald-400 transition"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleDownload}
+                        className="flex items-center gap-1 hover:text-emerald-400 transition"
+                      >
+                        <Download size={14} />
+                        <span>Download</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsModalFullscreen(false)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
+                        title="Exit Full Screen (Esc)"
+                      >
+                        <Minimize2 size={13} />
+                        <span>Exit (Esc)</span>
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
+                  <Table size={48} className="text-emerald-500" />
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    Unable to parse spreadsheet
+                  </p>
+                  <p className="text-xs text-zinc-500">The spreadsheet format could not be decoded.</p>
                   <button
                     type="button"
                     onClick={handleDownload}
-                    className="flex items-center gap-1 hover:text-blue-400 transition"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs"
                   >
-                    <Download size={14} />
-                    <span>Download</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsModalFullscreen(false)}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-red-600/90 hover:bg-red-600 text-white font-medium rounded-full transition text-xs shadow-xs"
-                    title="Exit Full Screen (Esc)"
-                  >
-                    <Minimize2 size={13} />
-                    <span>Exit (Esc)</span>
+                    Download Original Spreadsheet
                   </button>
                 </div>
               )}
