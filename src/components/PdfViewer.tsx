@@ -371,37 +371,32 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             <canvas ref={canvasRef} className="block max-w-full" />
           </div>
         ) : blobUrl ? (
-          <object
-            data={blobUrl}
-            type="application/pdf"
-            className={`w-full h-full bg-white ${
-              isFullscreen ? 'border-0 rounded-none' : 'rounded-xl border border-zinc-800'
-            }`}
-          >
-            <div className="flex flex-col items-center justify-center h-full p-8 text-center text-zinc-400 gap-4">
-              <FileText size={48} className="text-red-400" />
-              <p className="text-sm font-medium text-white">Embedded browser viewer unavailable</p>
-              <p className="text-xs max-w-sm">
-                Your browser blocked embedded PDF framing. You can open the PDF in a new tab or download it directly.
-              </p>
-              <div className="flex items-center gap-3 mt-2">
-                <button
-                  type="button"
-                  onClick={handleOpenNewTab}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold"
-                >
-                  Open in New Tab
-                </button>
-                <button
-                  type="button"
-                  onClick={onDownload}
-                  className="px-4 py-2 bg-zinc-700 text-white rounded-xl text-xs font-semibold"
-                >
-                  Download PDF
-                </button>
-              </div>
+          <div className="w-full h-full flex flex-col items-center justify-center relative">
+            <iframe
+              src={blobUrl}
+              title={fileName}
+              className={`w-full h-full bg-white ${
+                isFullscreen ? 'border-0 rounded-none' : 'rounded-xl border border-zinc-800'
+              }`}
+            />
+            {/* Quick action bar if browser blocks embedded PDF controls */}
+            <div className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-zinc-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 shadow-lg text-xs">
+              <button
+                type="button"
+                onClick={handleOpenNewTab}
+                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition"
+              >
+                Open in Tab
+              </button>
+              <button
+                type="button"
+                onClick={onDownload}
+                className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-xs font-semibold transition"
+              >
+                Download
+              </button>
             </div>
-          </object>
+          </div>
         ) : (
           <div className="text-center text-zinc-400">
             <AlertCircle size={36} className="mx-auto text-red-400 mb-2" />

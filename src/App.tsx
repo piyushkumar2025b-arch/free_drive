@@ -22,6 +22,7 @@ import {
   uploadFile,
   createFolder,
   createTextFile,
+  createSampleFile,
   renameFileItem,
   moveFileItem,
   deleteFileItem,
@@ -44,6 +45,7 @@ import { Sidebar } from './components/Sidebar';
 import { FileList } from './components/FileList';
 import { FileDetailsPanel } from './components/FileDetailsPanel';
 import { FilePreviewModal } from './components/FilePreviewModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { NewFolderModal } from './components/NewFolderModal';
 import { NewTextFileModal } from './components/NewTextFileModal';
 import { RenameModal } from './components/RenameModal';
@@ -572,6 +574,18 @@ export default function App() {
         providerConfig
       );
 
+      // 6. Sample PDF Document
+      const samplePdfBase64 =
+        'data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA3MyA+PgpzdHJlYW0KQlQKL0YxIDI0IFRmCjEwMCA3MDAgVGQKKENsb3VkRmlsZSBNYW5hZ2VyIC0gUERGIFByZXZpZXcgVmVyaWZpZWQpIFRqCkVUCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0NCAwMDAwMCBuIAowMDAwMDAwMzY2IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNiAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKNDQzCiUlRU9G';
+      await createSampleFile(
+        'Executive_Summary.pdf',
+        samplePdfBase64,
+        'application/pdf',
+        uid,
+        folderId,
+        providerConfig
+      );
+
       setUploadToast('Starter files added!');
       setTimeout(() => setUploadToast(null), 3000);
     } catch (e: any) {
@@ -964,79 +978,84 @@ export default function App() {
 
       {/* Preview Modal */}
       {previewFile && (
-        <FilePreviewModal
-          file={previewFile}
-          siblingFiles={displayedFiles.filter((f) => !f.isFolder)}
-          onClose={() => setPreviewFile(null)}
-          onNavigateFile={(f) => setPreviewFile(f)}
-          onDelete={(f) => setFileToDelete(f)}
-          onRename={(f) => setFileToRename(f)}
-          onFileUpdated={(fileId) => {
-            markFileAsEdited(fileId);
-            setUploadToast('File updated and saved.');
-            setTimeout(() => setUploadToast(null), 3000);
-          }}
-          onExtractZip={async (file, dataUrl) => {
-            if (!currentUser) {
-              await signInWithGoogle();
-            }
-            if (!auth.currentUser) return;
+        <ErrorBoundary
+          fallbackTitle={`Could not display preview for "${previewFile.name}"`}
+          onReset={() => setPreviewFile(null)}
+        >
+          <FilePreviewModal
+            file={previewFile}
+            siblingFiles={displayedFiles.filter((f) => !f.isFolder)}
+            onClose={() => setPreviewFile(null)}
+            onNavigateFile={(f) => setPreviewFile(f)}
+            onDelete={(f) => setFileToDelete(f)}
+            onRename={(f) => setFileToRename(f)}
+            onFileUpdated={(fileId) => {
+              markFileAsEdited(fileId);
+              setUploadToast('File updated and saved.');
+              setTimeout(() => setUploadToast(null), 3000);
+            }}
+            onExtractZip={async (file, dataUrl) => {
+              if (!currentUser) {
+                await signInWithGoogle();
+              }
+              if (!auth.currentUser) return;
 
-            setPreviewFile(null);
-            setIsUploading(true);
-            setUploadProgress({
-              isOpen: true,
-              totalFiles: 1,
-              currentFileIndex: 1,
-              currentFileName: file.name,
-              currentFilePercent: 0,
-              overallPercent: 0,
-              statusText: 'Unzipping archive...',
-              isComplete: false,
-              error: null,
-            });
+              setPreviewFile(null);
+              setIsUploading(true);
+              setUploadProgress({
+                isOpen: true,
+                totalFiles: 1,
+                currentFileIndex: 1,
+                currentFileName: file.name,
+                currentFilePercent: 0,
+                overallPercent: 0,
+                statusText: 'Unzipping archive...',
+                isComplete: false,
+                error: null,
+              });
 
-            try {
-              const count = await extractZipToFolder(
-                dataUrl,
-                file.name,
-                auth.currentUser.uid,
-                currentFolderId,
-                providerConfig,
-                (percent, msg) => {
-                  setUploadProgress((prev) => ({
-                    ...prev,
-                    currentFilePercent: percent,
-                    overallPercent: percent,
-                    statusText: msg,
-                  }));
-                }
-              );
+              try {
+                const count = await extractZipToFolder(
+                  dataUrl,
+                  file.name,
+                  auth.currentUser.uid,
+                  currentFolderId,
+                  providerConfig,
+                  (percent, msg) => {
+                    setUploadProgress((prev) => ({
+                      ...prev,
+                      currentFilePercent: percent,
+                      overallPercent: percent,
+                      statusText: msg,
+                    }));
+                  }
+                );
 
-              setUploadProgress((prev) => ({
-                ...prev,
-                isComplete: true,
-                overallPercent: 100,
-                statusText: `Extracted ${count} file(s) into folder!`,
-              }));
-              setUploadToast(`Unzipped ${count} file(s) into your drive.`);
-              setTimeout(() => {
-                setUploadProgress((prev) => ({ ...prev, isOpen: false }));
-                setUploadToast(null);
-              }, 4000);
-            } catch (err: any) {
-              console.error('Unzip error:', err);
-              setErrorMsg('Unzip failed: ' + (err.message || ''));
-              setUploadProgress((prev) => ({
-                ...prev,
-                error: err.message || 'Unzip failed',
-                statusText: 'Failed to extract archive',
-              }));
-            } finally {
-              setIsUploading(false);
-            }
-          }}
-        />
+                setUploadProgress((prev) => ({
+                  ...prev,
+                  isComplete: true,
+                  overallPercent: 100,
+                  statusText: `Extracted ${count} file(s) into folder!`,
+                }));
+                setUploadToast(`Unzipped ${count} file(s) into your drive.`);
+                setTimeout(() => {
+                  setUploadProgress((prev) => ({ ...prev, isOpen: false }));
+                  setUploadToast(null);
+                }, 4000);
+              } catch (err: any) {
+                console.error('Unzip error:', err);
+                setErrorMsg('Unzip failed: ' + (err.message || ''));
+                setUploadProgress((prev) => ({
+                  ...prev,
+                  error: err.message || 'Unzip failed',
+                  statusText: 'Failed to extract archive',
+                }));
+              } finally {
+                setIsUploading(false);
+              }
+            }}
+          />
+        </ErrorBoundary>
       )}
 
       {/* Dialog Modals */}

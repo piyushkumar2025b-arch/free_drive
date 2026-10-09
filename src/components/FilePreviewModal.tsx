@@ -60,6 +60,36 @@ interface FilePreviewModalProps {
   onExtractZip?: (file: FileItem, dataUrl: string) => Promise<void>;
 }
 
+function extractTextFromDataUrl(url: string): string {
+  const commaIdx = url.indexOf(',');
+  if (commaIdx === -1) return '';
+  const mimePart = url.substring(0, commaIdx);
+  const payload = url.substring(commaIdx + 1);
+  if (
+    mimePart.includes('text') ||
+    mimePart.includes('json') ||
+    mimePart.includes('javascript') ||
+    mimePart.includes('xml') ||
+    mimePart.includes('csv') ||
+    mimePart.includes('svg')
+  ) {
+    try {
+      if (mimePart.includes(';base64')) {
+        return decodeURIComponent(escape(atob(payload)));
+      } else {
+        return decodeURIComponent(payload);
+      }
+    } catch {
+      try {
+        return atob(payload);
+      } catch {
+        return '';
+      }
+    }
+  }
+  return '';
+}
+
 export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   file,
   siblingFiles = [],
@@ -179,7 +209,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   // Load chunked / remote data if not loaded
   useEffect(() => {
-    setTextContent(file.textContent || '');
+    let initialText = file.textContent || '';
+    if (!initialText && file.dataUrl) {
+      initialText = extractTextFromDataUrl(file.dataUrl);
+    }
+    setTextContent(initialText);
     setIsEditingText(false);
     setZoom(1);
     setRotation(0);
@@ -205,40 +239,17 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       .then((url) => {
         if (url) {
           setActiveDataUrl(url);
-          // If textContent was empty, decode it from data URL
-          if (!file.textContent) {
-            const commaIdx = url.indexOf(',');
-            if (commaIdx !== -1) {
-              const mimePart = url.substring(0, commaIdx);
-              const payload = url.substring(commaIdx + 1);
-              if (
-                mimePart.includes('text') ||
-                mimePart.includes('json') ||
-                mimePart.includes('javascript') ||
-                mimePart.includes('xml') ||
-                mimePart.includes('csv') ||
-                mimePart.includes('svg')
-              ) {
-                try {
-                  if (mimePart.includes(';base64')) {
-                    setTextContent(decodeURIComponent(escape(atob(payload))));
-                  } else {
-                    setTextContent(decodeURIComponent(payload));
-                  }
-                } catch {
-                  try {
-                    setTextContent(atob(payload));
-                  } catch {
-                    // ignore
-                  }
-                }
-              }
-            }
+          if (!initialText) {
+            const decoded = extractTextFromDataUrl(url);
+            if (decoded) setTextContent(decoded);
           }
+        } else {
+          setActiveDataUrl(null);
         }
       })
       .catch((e) => {
         console.warn('Could not load file data for preview', e);
+        setActiveDataUrl(null);
       })
       .finally(() => {
         setIsLoadingData(false);
@@ -808,10 +819,23 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 isFullscreen={isModalFullscreen}
                 onToggleFullscreen={() => setIsModalFullscreen(!isModalFullscreen)}
               />
-            ) : (
+            ) : isLoadingData ? (
               <div className="flex flex-col items-center gap-3 text-zinc-400 p-12">
                 <Loader2 className="w-8 h-8 animate-spin text-red-500" />
                 <p className="text-sm font-medium">Assembling and loading PDF file...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-4 text-center text-zinc-400 p-12">
+                <FileText size={48} className="text-red-400" />
+                <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Unable to load PDF preview</p>
+                <p className="text-xs text-zinc-500 max-w-sm">The PDF content could not be assembled from cloud storage.</p>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs"
+                >
+                  Download Original PDF
+                </button>
               </div>
             )
           ) : isDocx ? (

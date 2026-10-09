@@ -562,6 +562,61 @@ export async function createTextFile(
   }
 }
 
+export async function createSampleFile(
+  name: string,
+  dataUrl: string,
+  mimeType: string,
+  userId: string,
+  parentId: string | null = null,
+  providerConfig: ProviderConfig,
+  textContent?: string
+): Promise<string> {
+  const extension = getFileExtension(name);
+  const fileId = 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const size = Math.round(dataUrl.length * 0.75);
+
+  if (providerConfig.supabaseEnabled && (!providerConfig.firebaseEnabled || forceSupabaseMode)) {
+    await uploadToSupabase({
+      id: fileId,
+      name,
+      isFolder: false,
+      parentId,
+      size,
+      mimeType,
+      extension,
+      userId,
+      dataUrl,
+      textContent,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return fileId;
+  }
+
+  const fileRef = doc(db, 'files', fileId);
+  try {
+    await setDoc(fileRef, {
+      name,
+      isFolder: false,
+      parentId,
+      size,
+      mimeType,
+      extension,
+      dataUrl,
+      textContent: textContent || null,
+      userId,
+      isChunked: false,
+      totalChunks: 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return fileId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `files/${fileId}`);
+    return fileId;
+  }
+}
+
 export async function updateFileContent(
   target: FileItem | string,
   newContent: string,

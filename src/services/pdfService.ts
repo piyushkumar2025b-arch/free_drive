@@ -1,9 +1,16 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
-// Configure PDF.js worker
+// Ensure Promise.try is polyfilled if needed
+if (typeof (Promise as any).try !== 'function') {
+  (Promise as any).try = function (fn: any, ...args: any[]) {
+    return new Promise((resolve) => resolve(fn(...args)));
+  };
+}
+
+// Configure PDF.js worker using legacy same-origin Vite bundled asset
 if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
-  // Use unpkg worker matching current pdfjs-dist version
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 }
 
 export interface PdfDocumentInfo {
@@ -15,12 +22,24 @@ export interface PdfDocumentInfo {
  * Loads a PDF document from an ArrayBuffer
  */
 export async function loadPdfDocument(data: ArrayBuffer): Promise<any> {
-  const loadingTask = pdfjsLib.getDocument({
-    data: new Uint8Array(data),
-    cMapUrl: 'https://unpkg.com/pdfjs-dist/cmaps/',
-    cMapPacked: true,
-  });
-  return await loadingTask.promise;
+  const bytes = new Uint8Array(data);
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: bytes,
+      cMapPacked: true,
+    });
+    return await loadingTask.promise;
+  } catch (err) {
+    console.warn('PDF.js primary load attempt notice, trying fallback:', err);
+    try {
+      const fallbackTask = pdfjsLib.getDocument({
+        data: bytes.slice(0),
+      });
+      return await fallbackTask.promise;
+    } catch (fallbackErr) {
+      throw fallbackErr;
+    }
+  }
 }
 
 /**
