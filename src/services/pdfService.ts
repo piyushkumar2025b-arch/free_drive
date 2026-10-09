@@ -50,7 +50,7 @@ export async function renderPdfPageToCanvas(
   pageNumber: number,
   canvas: HTMLCanvasElement,
   scale: number = 1.5
-): Promise<{ width: number; height: number }> {
+): Promise<{ width: number; height: number; renderTask: any }> {
   const page = await pdfDoc.getPage(pageNumber);
   const viewport = page.getViewport({ scale });
 
@@ -73,8 +73,9 @@ export async function renderPdfPageToCanvas(
     viewport: viewport,
   };
 
-  await page.render(renderContext).promise;
+  const renderTask = page.render(renderContext);
+  await renderTask.promise;
   context.restore();
 
-  return { width: viewport.width, height: viewport.height };
+  return { width: viewport.width, height: viewport.height, renderTask };
 }

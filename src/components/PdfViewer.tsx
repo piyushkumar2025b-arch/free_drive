@@ -44,10 +44,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'canvas' | 'native'>('canvas');
   const [isControlsFaded, setIsControlsFaded] = useState<boolean>(false);
+  const [pageDimensions, setPageDimensions] = useState<{ width: number; height: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderTaskRef = useRef<number>(0);
+  const activeRenderTaskRef = useRef<any>(null);
   const fadeTimeoutRef = useRef<any>(null);
 
   // Generate safe blob URL for open-in-new-tab and native fallback
@@ -94,21 +96,42 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Cancel any in-flight render task on this canvas before starting a new one
+    if (activeRenderTaskRef.current) {
+      try {
+        activeRenderTaskRef.current.cancel();
+      } catch {}
+      activeRenderTaskRef.current = null;
+    }
+
     const currentTaskId = ++renderTaskRef.current;
     setIsRenderingPage(true);
 
     renderPdfPageToCanvas(pdfDoc, currentPage, canvas, scale)
-      .then(() => {
+      .then((res) => {
         if (currentTaskId === renderTaskRef.current) {
+          activeRenderTaskRef.current = res.renderTask;
+          setPageDimensions({ width: res.width, height: res.height });
           setIsRenderingPage(false);
         }
       })
       .catch((err) => {
+        // Ignore expected cancellation when switching pages or scale rapidly
+        if (err?.name === 'RenderingCancelledException') return;
         if (currentTaskId === renderTaskRef.current) {
           console.warn('Page render error:', err);
           setIsRenderingPage(false);
         }
       });
+
+    return () => {
+      if (activeRenderTaskRef.current) {
+        try {
+          activeRenderTaskRef.current.cancel();
+        } catch {}
+        activeRenderTaskRef.current = null;
+      }
+    };
   }, [pdfDoc, currentPage, scale, viewMode]);
 
   // Page handlers
@@ -344,31 +367,35 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         </div>
       )}
 
-      {/* MAIN DOCUMENT VIEWPORT (Zero outlines, zero borders, pure document in fullscreen) */}
+      {/* MAIN DOCUMENT VIEWPORT: Clean centered scrolling paper sheet */}
       <div
-        className={`flex-1 overflow-auto flex items-center justify-center relative bg-zinc-950 ${
-          isFullscreen ? 'p-0 w-full h-full' : 'p-4 sm:p-8'
+        className={`flex-1 overflow-auto flex justify-center items-start relative bg-zinc-950 ${
+          isFullscreen ? 'p-2 sm:p-6' : 'p-4 sm:p-8'
         }`}
       >
         {isLoading ? (
-          <div className="flex flex-col items-center gap-3 text-zinc-400">
+          <div className="flex flex-col items-center gap-3 text-zinc-400 my-auto py-16">
             <Loader2 className="w-8 h-8 animate-spin text-red-500" />
             <p className="text-sm font-medium">Parsing and rendering PDF document...</p>
           </div>
         ) : viewMode === 'canvas' ? (
           <div
-            className={`relative flex flex-col items-center bg-white ${
+            className={`relative flex flex-col items-center bg-white my-auto transition-all ${
               isFullscreen
-                ? 'border-0 shadow-none ring-0 outline-none rounded-none'
-                : 'shadow-2xl rounded-lg overflow-hidden border-0'
+                ? 'shadow-2xl rounded-sm border border-zinc-700/50'
+                : 'shadow-2xl rounded-sm border border-zinc-300 dark:border-zinc-800'
             }`}
+            style={{
+              width: pageDimensions ? `${Math.floor(pageDimensions.width)}px` : 'auto',
+              minHeight: pageDimensions ? `${Math.floor(pageDimensions.height)}px` : '400px',
+            }}
           >
             {isRenderingPage && (
-              <div className="absolute inset-0 bg-white/70 backdrop-blur-xs flex items-center justify-center z-10">
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-2xs flex items-center justify-center z-10 transition-opacity">
                 <Loader2 className="w-6 h-6 animate-spin text-red-600" />
               </div>
             )}
-            <canvas ref={canvasRef} className="block max-w-full" />
+            <canvas ref={canvasRef} className="block shadow-xs" />
           </div>
         ) : blobUrl ? (
           <div className="w-full h-full flex flex-col items-center justify-center relative">

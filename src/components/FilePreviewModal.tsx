@@ -133,7 +133,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [textContent, setTextContent] = useState<string>(file.textContent || '');
   const [isSavingText, setIsSavingText] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
-  const [wrapLines, setWrapLines] = useState<boolean>(true);
+  const [wrapLines, setWrapLines] = useState<boolean>(false);
 
   // Markdown toggle
   const [markdownViewMode, setMarkdownViewMode] = useState<'preview' | 'raw'>('preview');
@@ -891,23 +891,17 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 </div>
               )}
 
-              {/* Document Sheet: zero outlines, zero borders, pure centered reading in fullscreen */}
+              {/* Document Paper Sheet: Centered, realistic paper sheet maintaining letters on page */}
               <div
-                className={`flex-1 overflow-auto flex justify-center ${
-                  isModalFullscreen ? 'p-2 sm:p-8 bg-zinc-950' : 'p-6 sm:p-10 bg-zinc-100 dark:bg-zinc-950'
-                }`}
+                className={`flex-1 overflow-auto flex justify-center items-start bg-zinc-100 dark:bg-zinc-950 p-4 sm:p-10`}
               >
                 <div
-                  className={`w-full max-w-4xl docx-rendered-sheet min-h-full transition-all ${
-                    isModalFullscreen
-                      ? 'bg-transparent border-0 shadow-none ring-0 outline-none rounded-none p-4 sm:p-10 text-zinc-100'
-                      : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl rounded-2xl p-8 sm:p-14 text-zinc-900 dark:text-zinc-100'
-                  }`}
+                  className={`w-full max-w-4xl docx-rendered-sheet bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-800 shadow-xl rounded-xl p-8 sm:p-16 text-zinc-900 dark:text-zinc-100 my-4 min-h-[600px]`}
                 >
                   {isLoadingDocx ? (
-                    <div className="flex flex-col items-center justify-center p-12 text-zinc-400 gap-3">
+                    <div className="flex flex-col items-center justify-center p-16 text-zinc-400 gap-3">
                       <Loader2 className="animate-spin text-blue-500 w-8 h-8" />
-                      <p>Rendering Word document...</p>
+                      <p className="text-sm font-medium">Rendering Word document...</p>
                     </div>
                   ) : docxHtml ? (
                     <div dangerouslySetInnerHTML={{ __html: docxHtml }} />
@@ -1012,10 +1006,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 </div>
               )}
 
-              {/* Current Slide Canvas (16:9 widescreen) - in Fullscreen: Presentation Mode with ZERO outlines/borders */}
+              {/* Current Slide Canvas (16:9 widescreen) - Presentation Mode with stable proportions */}
               <div
                 className={`flex-1 overflow-auto flex items-center justify-center bg-zinc-950 ${
-                  isModalFullscreen ? 'p-0 w-full h-full' : 'p-8'
+                  isModalFullscreen ? 'p-4 sm:p-8' : 'p-6 sm:p-10'
                 }`}
               >
                 {isLoadingPptx ? (
@@ -1025,10 +1019,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   </div>
                 ) : slides.length > 0 ? (
                   <div
-                    className={`w-full aspect-video bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 flex flex-col justify-between transition-all ${
-                      isModalFullscreen
-                        ? 'border-0 shadow-none rounded-none w-full h-full p-8 sm:p-16 max-w-none'
-                        : 'max-w-5xl border border-zinc-800 rounded-2xl shadow-2xl p-10'
+                    className={`w-full max-w-5xl aspect-video max-h-[85vh] bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 flex flex-col justify-between transition-all rounded-2xl border border-zinc-800 shadow-2xl ${
+                      isModalFullscreen ? 'p-8 sm:p-14' : 'p-8 sm:p-12'
                     }`}
                   >
                     <div>
@@ -1361,19 +1353,24 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   </button>
                 </div>
               )}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-auto bg-white dark:bg-zinc-900">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 sticky top-0 border-b border-zinc-200 dark:border-zinc-700">
+                  <thead className="sticky top-0 z-20 border-b border-zinc-200 dark:border-zinc-700 shadow-2xs">
                     <tr>
-                      <th className="px-4 py-3 border-r border-zinc-200 dark:border-zinc-700 font-mono text-zinc-400 w-12 text-center">
+                      <th className="px-4 py-2.5 border-r border-zinc-200 dark:border-zinc-700 font-mono text-zinc-400 w-14 text-center sticky left-0 z-30 bg-zinc-100 dark:bg-zinc-800">
                         #
                       </th>
                       {csvData.headers.map((h, i) => (
                         <th
                           key={i}
-                          className="px-4 py-3 border-r border-zinc-200 dark:border-zinc-700 font-semibold truncate max-w-xs"
+                          className="px-4 py-2.5 border-r border-zinc-200 dark:border-zinc-700 font-semibold whitespace-nowrap bg-zinc-100 dark:bg-zinc-800 min-w-[120px]"
                         >
-                          {h}
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-zinc-400 font-mono uppercase tracking-wider font-normal">
+                              Col {String.fromCharCode(65 + (i % 26))}
+                            </span>
+                            <span className="text-zinc-800 dark:text-zinc-200">{h || `Column ${i + 1}`}</span>
+                          </div>
                         </th>
                       ))}
                     </tr>
@@ -1384,13 +1381,13 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                         key={rIdx}
                         className="hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors"
                       >
-                        <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-800 text-zinc-400 text-center select-none">
+                        <td className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-800 text-zinc-400 text-center select-none sticky left-0 z-10 bg-zinc-50 dark:bg-zinc-900 font-sans tabular-nums">
                           {rIdx + 1}
                         </td>
                         {row.map((cell, cIdx) => (
                           <td
                             key={cIdx}
-                            className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 truncate max-w-xs"
+                            className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 whitespace-nowrap"
                           >
                             {cell}
                           </td>
@@ -1596,9 +1593,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 </div>
               )}
 
-              <div className="flex-1 flex overflow-hidden font-mono text-xs leading-6">
-                {/* Line Numbers Gutter */}
-                <div className="select-none py-4 px-4 bg-zinc-950 text-zinc-600 border-r border-zinc-800/80 text-right overflow-hidden tabular-nums">
+              <div className="flex-1 overflow-auto flex font-mono text-xs leading-6 bg-zinc-950">
+                {/* Line Numbers Gutter: Sticky to left margin, scrolls vertically in 100% lockstep with code */}
+                <div className="select-none py-4 px-3 sm:px-4 bg-zinc-950 text-zinc-600 border-r border-zinc-800/80 text-right sticky left-0 z-10 tabular-nums shrink-0">
                   {textContent.split('\n').map((_, i) => (
                     <div key={i}>{i + 1}</div>
                   ))}
@@ -1610,15 +1607,15 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                     value={textContent}
                     onChange={(e) => setTextContent(e.target.value)}
                     className={`flex-1 p-4 bg-transparent text-zinc-100 resize-none outline-none font-mono text-xs leading-6 ${
-                      wrapLines ? 'whitespace-pre-wrap' : 'whitespace-pre overflow-x-auto'
+                      wrapLines ? 'whitespace-pre-wrap' : 'whitespace-pre min-w-[600px]'
                     }`}
                     spellCheck={false}
                     autoFocus
                   />
                 ) : (
                   <pre
-                    className={`flex-1 p-4 text-zinc-100 overflow-auto font-mono text-xs leading-6 ${
-                      wrapLines ? 'whitespace-pre-wrap' : 'whitespace-pre'
+                    className={`flex-1 p-4 text-zinc-100 font-mono text-xs leading-6 ${
+                      wrapLines ? 'whitespace-pre-wrap' : 'whitespace-pre min-w-max'
                     }`}
                     dangerouslySetInnerHTML={{
                       __html: highlightedCodeHtml || textContent || '(Empty file)',
